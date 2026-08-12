@@ -283,18 +283,34 @@ const DB = (function(){
   const projects = ["Keystone Seasons","Keystone Elevate","Tonino Lamborghini","Digital Marketing","Meta Ads","Google Ads","CRM","Website","Events","Other"];
   const tasks = [];
 
-  function slugify(name){ return (name||'').toLowerCase().replace(/[^a-z0-9]+/g,''); }
-  function uniqueUsername(name){
-    const firstName = (name||'').trim().split(/\s+/)[0];
-    const base = slugify(firstName) || 'user';
-    let candidate = base, n = 2;
-    while (employees.some(e => e.username === candidate)){ candidate = base + n; n++; }
+  // Deterministic, non-guessable link token. Random tokens would look
+  // "more secure" but this app re-seeds its in-memory data from scratch
+  // on every page load — a random token would only ever match the one
+  // browser tab that generated it, breaking the link everywhere else.
+  // Hashing the name (with a fixed salt) instead gives a token that
+  // looks unrelated to the name, yet is reproduced identically every
+  // time this same code runs, so a link keeps working on any device.
+  function hash32(str){
+    let h = 2166136261 >>> 0;
+    for (let i=0;i<str.length;i++){ h ^= str.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+    return h >>> 0;
+  }
+  function deterministicToken(seedStr){
+    const s = 'taskframe-link-v1::' + seedStr;
+    const h1 = hash32(s);
+    const h2 = hash32(s + '::' + h1.toString(36));
+    const h3 = hash32(h1.toString(36) + s + h2.toString(36));
+    return (h1.toString(36) + h2.toString(36) + h3.toString(36)).slice(0, 16);
+  }
+  function uniqueToken(name){
+    let n = 0, candidate = deterministicToken(name);
+    while (employees.some(e => e.token === candidate)){ n++; candidate = deterministicToken(name + '::' + n); }
     return candidate;
   }
   function addEmployee(e){
     e.id = 'E' + (++seq.emp);
     e.active = e.active !== false;
-    e.username = uniqueUsername(e.name);
+    e.token = uniqueToken(e.name);
     employees.push(e);
     return e;
   }
@@ -1477,11 +1493,11 @@ function renameDeptUI(oldName){ const v = document.getElementById('rename-input'
 function renameProjectUI(oldName){ const v = document.getElementById('rename-input').value; if (v.trim()){ DB.renameProject(oldName, v); state.renaming=null; showToast('Project renamed'); render(); } }
 
 /* ---- Personal share links (URL-locked per-person view) ---- */
-function shareLink(username){
-  return window.location.origin + window.location.pathname + '?u=' + encodeURIComponent(username);
+function shareLink(token){
+  return window.location.origin + window.location.pathname + '?u=' + encodeURIComponent(token);
 }
-function copyShareLink(username){
-  const link = shareLink(username);
+function copyShareLink(token){
+  const link = shareLink(token);
   if (navigator.clipboard && navigator.clipboard.writeText){
     navigator.clipboard.writeText(link).then(() => showToast('Link copied')).catch(() => showToast('Copy failed — select the link and copy manually'));
   } else {
@@ -1489,17 +1505,17 @@ function copyShareLink(username){
   }
 }
 function shareLinkRow(e){
-  const link = shareLink(e.username);
+  const link = shareLink(e.token);
   return '<div class="flex-between" style="gap:10px;flex-wrap:wrap;padding:6px 0;border-bottom:1px solid var(--border)">' +
     '<span class="flex gap-8">'+avatar(e,24)+'<span style="font-size:12.5px;font-weight:700">'+e.name+(e.role==='admin'?' <span class="sub">(Manager — full access)</span>':' <span class="sub">('+e.department+')</span>')+'</span></span>' +
-    '<span class="flex gap-6"><input class="field mono" style="width:290px;font-size:11px" readonly value="'+escAttr(link)+'" onclick="this.select()" /><button class="btn btn-sm" onclick="copyShareLink(\''+e.username+'\')">'+icon('download',11)+' Copy</button></span>' +
+    '<span class="flex gap-6"><input class="field mono" style="width:340px;font-size:11px" readonly value="'+escAttr(link)+'" onclick="this.select()" /><button class="btn btn-sm" onclick="copyShareLink(\''+e.token+'\')">'+icon('download',11)+' Copy</button></span>' +
   '</div>';
 }
 function shareLinksCard(){
   return '<div class="card"><div class="card-head"><span class="card-title">Personal Dashboard Links</span></div><div class="card-pad">' +
-    '<div class="sub" style="margin-bottom:10px">Send each person the link below instead of this page\'s own URL. It opens straight into their own locked dashboard — the "View as" switcher is hidden, so there is no way in the app to click over to a teammate\'s tasks or scores. Your own URL (the one you\'re on now, with no link below) keeps full manager access to everyone\'s data.</div>' +
+    '<div class="sub" style="margin-bottom:10px">Send each person the link below instead of this page\'s own URL. Each link ends in a code derived from their name (not the name itself), opens straight into their own locked dashboard, and hides the "View as" switcher — there is no field to edit and no menu to click over to a teammate\'s tasks or scores. Your own URL (the one you\'re on now, with no code below) keeps full manager access to everyone\'s data. These links only work for people who already exist when the page loads — anyone added below under Team only exists in your own browser and won\'t have a working link elsewhere until the app is connected to a real backend.</div>' +
     DB.employees.filter(e => e.active).map(e => shareLinkRow(e)).join('') +
-    '<div class="sub" style="margin-top:10px">Heads up: this app has no server, so the lock is a convenience for a trusted team, not real security — the full dataset still loads in every browser and someone technical could still open dev tools and switch views. Genuine per-person access control needs a real backend with authentication (see Data & Integrations below).</div>' +
+    '<div class="sub" style="margin-top:10px">Heads up: this app has no server, so this stops casual link-guessing but is not real security — the full dataset still loads in every browser, so someone technical could open dev tools and read past the lock. Genuine per-person access control, and links for people added after launch, both need a real backend with authentication (see Data & Integrations below).</div>' +
   '</div></div>';
 }
 
@@ -1942,7 +1958,7 @@ function getUrlUser(){
     const params = new URLSearchParams(window.location.search);
     const u = params.get('u');
     if (!u) return null;
-    return DB.employees.find(e => e.username === u.toLowerCase() && e.active) || null;
+    return DB.employees.find(e => e.token === u && e.active) || null;
   } catch(e){ return null; }
 }
 
