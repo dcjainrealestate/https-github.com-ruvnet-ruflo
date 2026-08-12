@@ -1,0 +1,1901 @@
+<title>Taskframe</title>
+<style>
+  /* ============================= TOKENS ============================= */
+  :root{
+    --bg:#F5F7F5; --bg-inset:#EBEFEA; --surface:#FFFFFF; --surface-2:#F1F4F1;
+    --border:#DBE2DB; --border-strong:#C3CDC2;
+    --ink:#161A18; --ink-soft:#4B5450; --ink-faint:#7C857F;
+    --accent:#1F5E58; --accent-strong:#164742; --accent-soft:#E1EDEA; --accent-ink:#FFFFFF;
+    --gold:#8C6425; --gold-soft:#F5E9D6;
+    --good:#1F7A46; --good-soft:#DCF0E3;
+    --warn:#966018; --warn-soft:#F6E7CD;
+    --bad:#AC3434; --bad-soft:#FBE1DF;
+    --info:#2E5FA3; --info-soft:#DEE9F7;
+    --neutral-status:#5B645F; --neutral-soft:#E7EAE6;
+    --shadow:0 1px 2px rgba(20,30,25,.07),0 6px 16px rgba(20,30,25,.06);
+    --radius:10px; --radius-sm:6px;
+    --font-ui:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    --font-mono:ui-monospace,"SF Mono","Cascadia Mono","Roboto Mono",Menlo,Consolas,monospace;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#121613; --bg-inset:#0E1210; --surface:#181D1A; --surface-2:#1F2521;
+      --border:#2B332D; --border-strong:#3A443C;
+      --ink:#EAEEEA; --ink-soft:#AEB8B0; --ink-faint:#7C877E;
+      --accent:#4FA294; --accent-strong:#6DBBAC; --accent-soft:#1B2E2A; --accent-ink:#0C1211;
+      --gold:#D3A153; --gold-soft:#2E2515;
+      --good:#4FBE7E; --good-soft:#173325;
+      --warn:#D6A24B; --warn-soft:#332815;
+      --bad:#E17272; --bad-soft:#371C1C;
+      --info:#7CA6E0; --info-soft:#1B2A3D;
+      --neutral-status:#98A29A; --neutral-soft:#232A25;
+      --shadow:0 1px 2px rgba(0,0,0,.35),0 8px 20px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#121613; --bg-inset:#0E1210; --surface:#181D1A; --surface-2:#1F2521;
+    --border:#2B332D; --border-strong:#3A443C;
+    --ink:#EAEEEA; --ink-soft:#AEB8B0; --ink-faint:#7C877E;
+    --accent:#4FA294; --accent-strong:#6DBBAC; --accent-soft:#1B2E2A; --accent-ink:#0C1211;
+    --gold:#D3A153; --gold-soft:#2E2515;
+    --good:#4FBE7E; --good-soft:#173325;
+    --warn:#D6A24B; --warn-soft:#332815;
+    --bad:#E17272; --bad-soft:#371C1C;
+    --info:#7CA6E0; --info-soft:#1B2A3D;
+    --neutral-status:#98A29A; --neutral-soft:#232A25;
+    --shadow:0 1px 2px rgba(0,0,0,.35),0 8px 20px rgba(0,0,0,.35);
+  }
+
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    margin:0; background:var(--bg); color:var(--ink); font-family:var(--font-ui);
+    font-size:14px; line-height:1.45; -webkit-font-smoothing:antialiased;
+  }
+  #app{display:flex; min-height:100vh;}
+  a{color:inherit;}
+  button{font-family:inherit;}
+  ::selection{background:var(--accent-soft);}
+  .num{font-variant-numeric:tabular-nums; font-feature-settings:"tnum";}
+  .mono{font-family:var(--font-mono);}
+
+  /* ---------- layout shell ---------- */
+  .sidebar{
+    width:228px; flex:0 0 228px; background:var(--surface); border-right:1px solid var(--border);
+    display:flex; flex-direction:column; position:sticky; top:0; height:100vh; overflow-y:auto;
+  }
+  .brand{display:flex; align-items:center; gap:10px; padding:18px 18px 14px;}
+  .brand-mark{width:30px; height:30px; border-radius:8px; background:var(--accent); color:var(--accent-ink);
+    display:flex; align-items:center; justify-content:center; font-weight:800; font-size:14px; letter-spacing:-.02em; flex:0 0 auto;}
+  .brand-name{font-weight:800; font-size:16px; letter-spacing:-.01em;}
+  .brand-sub{font-size:10.5px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:.08em; margin-top:1px;}
+
+  .nav{padding:6px 10px; display:flex; flex-direction:column; gap:2px;}
+  .nav-item{
+    display:flex; align-items:center; gap:10px; padding:9px 12px; border-radius:var(--radius-sm);
+    color:var(--ink-soft); font-size:13.5px; font-weight:600; cursor:pointer; border:1px solid transparent;
+    user-select:none;
+  }
+  .nav-item:hover{background:var(--surface-2); color:var(--ink);}
+  .nav-item.active{background:var(--accent-soft); color:var(--accent-strong); }
+  .nav-icon{width:17px; text-align:center; flex:0 0 auto; font-size:14px;}
+  .nav-section-label{font-size:10px; text-transform:uppercase; letter-spacing:.09em; color:var(--ink-faint); padding:14px 12px 4px; font-weight:700;}
+
+  .sidebar-foot{margin-top:auto; padding:12px; border-top:1px solid var(--border);}
+  .role-switch{background:var(--surface-2); border:1px solid var(--border); border-radius:var(--radius-sm); padding:8px 10px;}
+  .role-switch label{display:block; font-size:10px; text-transform:uppercase; letter-spacing:.07em; color:var(--ink-faint); font-weight:700; margin-bottom:4px;}
+  .role-switch select{width:100%; border:1px solid var(--border-strong); background:var(--surface); color:var(--ink); border-radius:6px; padding:6px 7px; font-size:12.5px; font-weight:600;}
+
+  .main{flex:1 1 auto; min-width:0; display:flex; flex-direction:column;}
+  .topbar{
+    position:sticky; top:0; z-index:20; background:var(--bg); background:color-mix(in srgb, var(--bg) 92%, transparent);
+    backdrop-filter:blur(6px); border-bottom:1px solid var(--border);
+    display:flex; align-items:center; gap:14px; padding:12px 24px;
+  }
+  .search-wrap{position:relative; flex:1 1 380px; max-width:440px;}
+  .search-wrap input{
+    width:100%; padding:8px 12px 8px 32px; border-radius:8px; border:1px solid var(--border-strong);
+    background:var(--surface); color:var(--ink); font-size:13px;
+  }
+  .search-wrap input:focus{outline:2px solid var(--accent); outline-offset:1px;}
+  .search-icon{position:absolute; left:10px; top:50%; transform:translateY(-50%); color:var(--ink-faint); font-size:13px;}
+  .topbar-spacer{flex:1 1 auto;}
+  .icon-btn{
+    position:relative; width:34px; height:34px; border-radius:8px; border:1px solid var(--border);
+    background:var(--surface); color:var(--ink-soft); display:flex; align-items:center; justify-content:center;
+    cursor:pointer; font-size:15px;
+  }
+  .icon-btn:hover{background:var(--surface-2); color:var(--ink);}
+  .badge-dot{position:absolute; top:-4px; right:-4px; background:var(--bad); color:#fff; font-size:10px; font-weight:700;
+    min-width:16px; height:16px; border-radius:8px; display:flex; align-items:center; justify-content:center; padding:0 3px;}
+  .profile-chip{display:flex; align-items:center; gap:8px; padding:4px 10px 4px 4px; border-radius:20px; border:1px solid var(--border); background:var(--surface); cursor:default;}
+  .avatar{width:26px; height:26px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:800; color:#fff; flex:0 0 auto;}
+  .avatar.lg{width:44px; height:44px; font-size:16px;}
+  .profile-name{font-size:12.5px; font-weight:700;}
+  .profile-role{font-size:10.5px; color:var(--ink-faint);}
+
+  .content{padding:22px 26px 60px; max-width:1360px; width:100%; margin:0 auto;}
+  .page-head{display:flex; align-items:flex-end; justify-content:space-between; gap:16px; margin-bottom:18px; flex-wrap:wrap;}
+  .page-title{font-size:21px; font-weight:800; letter-spacing:-.015em; text-wrap:balance;}
+  .page-sub{color:var(--ink-faint); font-size:12.5px; margin-top:2px;}
+  .page-actions{display:flex; gap:8px; flex-wrap:wrap;}
+
+  /* ---------- buttons ---------- */
+  .btn{
+    display:inline-flex; align-items:center; gap:6px; padding:8px 14px; border-radius:8px; font-size:13px; font-weight:700;
+    border:1px solid var(--border-strong); background:var(--surface); color:var(--ink); cursor:pointer; white-space:nowrap;
+  }
+  .btn:hover{background:var(--surface-2);}
+  .btn:focus-visible{outline:2px solid var(--accent); outline-offset:1px;}
+  .btn-primary{background:var(--accent); border-color:var(--accent); color:var(--accent-ink);}
+  .btn-primary:hover{background:var(--accent-strong); border-color:var(--accent-strong);}
+  .btn-ghost{border-color:transparent; background:transparent;}
+  .btn-ghost:hover{background:var(--surface-2);}
+  .btn-danger{color:var(--bad); border-color:var(--bad-soft); background:var(--bad-soft);}
+  .btn-sm{padding:5px 10px; font-size:12px; border-radius:7px;}
+  .btn[disabled]{opacity:.45; cursor:not-allowed;}
+
+  /* ---------- cards / grid ---------- */
+  .grid{display:grid; gap:14px;}
+  .grid-kpi{grid-template-columns:repeat(5,1fr);}
+  .grid-2{grid-template-columns:1.4fr 1fr;}
+  .grid-3{grid-template-columns:repeat(3,1fr);}
+  .grid-emp{grid-template-columns:repeat(3,1fr);}
+  @media(max-width:1100px){.grid-kpi{grid-template-columns:repeat(3,1fr);} .grid-2{grid-template-columns:1fr;} .grid-emp{grid-template-columns:repeat(2,1fr);}}
+  @media(max-width:680px){.grid-kpi{grid-template-columns:repeat(2,1fr);} .grid-3{grid-template-columns:1fr;} .grid-emp{grid-template-columns:1fr;}}
+
+  .card{background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow);}
+  .card-pad{padding:16px 18px;}
+  .card-head{display:flex; align-items:center; justify-content:space-between; padding:14px 18px 0;}
+  .card-title{font-size:13px; font-weight:800; letter-spacing:-.01em;}
+  .card-title-sm{font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-faint);}
+
+  .kpi{padding:14px 16px;}
+  .kpi-label{font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-faint); font-weight:700;}
+  .kpi-value{font-size:26px; font-weight:800; margin-top:6px; letter-spacing:-.02em;}
+  .kpi-foot{font-size:11.5px; color:var(--ink-faint); margin-top:4px;}
+  .kpi-value.good{color:var(--good);} .kpi-value.bad{color:var(--bad);} .kpi-value.warn{color:var(--warn);}
+
+  /* ---------- pills / chips ---------- */
+  .pill{display:inline-flex; align-items:center; gap:5px; padding:2.5px 8px; border-radius:20px; font-size:11px; font-weight:700; white-space:nowrap;}
+  .dot{width:6px; height:6px; border-radius:50%; flex:0 0 auto;}
+  .pill-critical{background:var(--bad-soft); color:var(--bad);}
+  .pill-high{background:var(--warn-soft); color:var(--warn);}
+  .pill-medium{background:var(--info-soft); color:var(--info);}
+  .pill-low{background:var(--neutral-soft); color:var(--neutral-status);}
+  .pill-status-notstarted{background:var(--neutral-soft); color:var(--neutral-status);}
+  .pill-status-inprogress{background:var(--info-soft); color:var(--info);}
+  .pill-status-onhold{background:var(--warn-soft); color:var(--warn);}
+  .pill-status-completed{background:var(--good-soft); color:var(--good);}
+  .pill-status-cancelled{background:var(--surface-2); color:var(--ink-faint); text-decoration:line-through;}
+  .pill-overdue{background:var(--bad); color:#fff;}
+  .level-bars{display:inline-flex; align-items:flex-end; gap:2px; height:12px; vertical-align:middle;}
+  .level-bars i{width:3px; display:block; background:var(--border-strong); border-radius:1px;}
+  .level-bars i:nth-child(1){height:4px;} .level-bars i:nth-child(2){height:7px;} .level-bars i:nth-child(3){height:10px;} .level-bars i:nth-child(4){height:13px;}
+  .level-bars i.on{background:var(--accent);}
+  .level-tag{font-size:11px; font-weight:700; color:var(--ink-soft); display:inline-flex; align-items:center; gap:5px;}
+
+  /* ---------- table ---------- */
+  .table-wrap{overflow-x:auto;}
+  table{border-collapse:collapse; width:100%; font-size:12.8px;}
+  th{text-align:left; font-size:10.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-faint); font-weight:700; padding:9px 12px; border-bottom:1px solid var(--border); white-space:nowrap; cursor:pointer; user-select:none;}
+  th:hover{color:var(--ink);}
+  th.sorted{color:var(--accent);}
+  td{padding:10px 12px; border-bottom:1px solid var(--border); vertical-align:middle;}
+  tr.row:hover td{background:var(--surface-2);}
+  .task-name-cell{font-weight:700; cursor:pointer;}
+  .task-name-cell:hover{color:var(--accent);}
+  .sub{color:var(--ink-faint); font-size:11.5px;}
+
+  .progress-track{width:80px; height:6px; border-radius:4px; background:var(--surface-2); overflow:hidden; border:1px solid var(--border);}
+  .progress-fill{height:100%; background:var(--accent); border-radius:4px;}
+  .progress-track.lg{width:100%; height:10px;}
+
+  /* ---------- filter bar ---------- */
+  .filter-bar{display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:14px;}
+  .chip-filter{padding:6px 12px; border-radius:20px; border:1px solid var(--border-strong); background:var(--surface); font-size:12px; font-weight:700; cursor:pointer; color:var(--ink-soft);}
+  .chip-filter.active{background:var(--ink); color:var(--bg); border-color:var(--ink);}
+  select.field, input.field, textarea.field{
+    border:1px solid var(--border-strong); background:var(--surface); color:var(--ink); border-radius:7px; padding:7px 9px; font-size:12.5px; font-family:inherit;
+  }
+  select.field:focus, input.field:focus, textarea.field:focus{outline:2px solid var(--accent); outline-offset:1px;}
+
+  /* ---------- modal ---------- */
+  .modal-overlay{position:fixed; inset:0; background:rgba(10,14,12,.5); display:flex; align-items:flex-start; justify-content:center; padding:40px 16px; overflow-y:auto; z-index:100;}
+  .modal{background:var(--surface); border-radius:14px; border:1px solid var(--border); width:100%; max-width:640px; box-shadow:0 20px 50px rgba(0,0,0,.25); animation:pop .12s ease-out;}
+  .modal.wide{max-width:920px;}
+  @keyframes pop{from{opacity:0; transform:translateY(6px);} to{opacity:1; transform:translateY(0);}}
+  .modal-head{display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid var(--border);}
+  .modal-head h3{margin:0; font-size:15.5px; font-weight:800;}
+  .modal-body{padding:18px 20px;}
+  .modal-foot{display:flex; justify-content:flex-end; gap:8px; padding:14px 20px; border-top:1px solid var(--border);}
+  .field-row{display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px;}
+  .field-row.single{grid-template-columns:1fr;}
+  .field-group label{display:block; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--ink-faint); margin-bottom:5px;}
+  .field-group select, .field-group input, .field-group textarea{width:100%;}
+
+  /* ---------- misc ---------- */
+  .divider{height:1px; background:var(--border); margin:14px 0;}
+  .muted{color:var(--ink-faint);}
+  .empty-state{padding:40px 20px; text-align:center; color:var(--ink-faint);}
+  .flex{display:flex; align-items:center;}
+  .flex-between{display:flex; align-items:center; justify-content:space-between;}
+  .gap-6{gap:6px;} .gap-8{gap:8px;} .gap-10{gap:10px;} .gap-14{gap:14px;}
+  .stack{display:flex; flex-direction:column; gap:10px;}
+  .close-x{cursor:pointer; color:var(--ink-faint); font-size:15px; padding:4px; border-radius:6px;}
+  .close-x:hover{background:var(--surface-2); color:var(--ink);}
+  .alert-row{display:flex; align-items:center; gap:10px; padding:9px 12px; border-radius:8px; font-size:12.5px; font-weight:600; cursor:pointer;}
+  .alert-row:hover{background:var(--surface-2);}
+  .alert-ico{width:26px; height:26px; border-radius:7px; display:flex; align-items:center; justify-content:center; font-size:13px; flex:0 0 auto;}
+  .toast{position:fixed; bottom:20px; right:20px; background:var(--ink); color:var(--bg); padding:11px 16px; border-radius:9px; font-size:13px; font-weight:700; box-shadow:0 10px 30px rgba(0,0,0,.3); z-index:200; animation:pop .12s ease-out;}
+  .notif-panel{position:absolute; top:44px; right:0; width:320px; background:var(--surface); border:1px solid var(--border); border-radius:12px; box-shadow:var(--shadow); z-index:50; overflow:hidden;}
+  .notif-item{padding:11px 14px; border-bottom:1px solid var(--border); font-size:12.5px;}
+  .notif-item:last-child{border-bottom:none;}
+  .bar-row{display:flex; align-items:center; gap:10px; padding:7px 0;}
+  .bar-track{flex:1; height:9px; background:var(--surface-2); border-radius:5px; overflow:hidden; border:1px solid var(--border);}
+  .bar-fill{height:100%; border-radius:5px; background:var(--accent);}
+  .score-ring{position:relative; width:64px; height:64px; flex:0 0 auto;}
+  .score-ring svg{transform:rotate(-90deg);}
+  .score-ring .val{position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:15px; font-weight:800;}
+  .breakdown-row{display:flex; align-items:center; justify-content:space-between; gap:10px; font-size:12px; padding:5px 0;}
+  .breakdown-row .lbl{color:var(--ink-soft); font-weight:600; flex:0 0 150px;}
+  .breakdown-row .bar-track{height:7px;}
+  .breakdown-row .v{width:38px; text-align:right; font-weight:800;}
+  .cal-wrap{overflow-x:auto;}
+  .cal-grid{display:grid; grid-template-columns:repeat(7,minmax(120px,1fr)); min-width:840px; border-top:1px solid var(--border); border-left:1px solid var(--border);}
+  .cal-cell{min-height:96px; min-width:0; overflow:hidden; border-right:1px solid var(--border); border-bottom:1px solid var(--border); padding:6px; position:relative;}
+  .cal-cell.muted-cell{background:var(--bg-inset); color:var(--ink-faint);}
+  .cal-daynum{font-size:11.5px; font-weight:700; color:var(--ink-faint);}
+  .cal-cell.today .cal-daynum{background:var(--accent); color:var(--accent-ink); border-radius:50%; width:20px; height:20px; display:flex; align-items:center; justify-content:center;}
+  .cal-dow{padding:8px 6px; font-size:10.5px; font-weight:700; text-transform:uppercase; color:var(--ink-faint); text-align:center; border-bottom:1px solid var(--border);}
+  .cal-task{font-size:10.5px; font-weight:700; padding:2px 5px; border-radius:4px; margin-top:3px; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .rank-badge{width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:800; background:var(--surface-2); color:var(--ink-soft); flex:0 0 auto;}
+  .rank-badge.top{background:var(--gold-soft); color:var(--gold);}
+  .link-btn{background:none; border:none; color:var(--accent); font-weight:700; font-size:inherit; cursor:pointer; padding:0;}
+  .comment{background:var(--surface-2); border-radius:8px; padding:9px 11px; font-size:12.5px;}
+  .comment .meta{font-size:10.5px; color:var(--ink-faint); margin-bottom:3px; font-weight:700;}
+  .trend-up{color:var(--good); font-weight:800;} .trend-down{color:var(--bad); font-weight:800;} .trend-flat{color:var(--ink-faint); font-weight:800;}
+  ::-webkit-scrollbar{height:8px; width:8px;}
+  ::-webkit-scrollbar-thumb{background:var(--border-strong); border-radius:4px;}
+  @media print{
+    .sidebar,.topbar,.page-actions,.filter-bar,.btn{display:none !important;}
+    .content{max-width:100%; padding:0;}
+    body{background:#fff; color:#000;}
+  }
+</style>
+
+<div id="app"></div>
+
+<script>
+"use strict";
+
+/* =====================================================================
+   1. DATA LAYER
+   In-memory store for this demo. Swap DB's internals for calls to
+   Supabase / Firebase / Airtable / Postgres without touching any UI code
+   below — every view reads only through DB.* and the business-logic
+   functions in section 2.
+   ===================================================================== */
+const DB = (function(){
+  let seq = {task:0, comment:0, emp:0};
+  const employees = [];
+  const departments = ["Digital Marketing","Sales","CRM","Creative","Operations","Management","Accounts","Admin"];
+  const projects = ["Keystone Seasons","Keystone Elevate","Tonino Lamborghini","Digital Marketing","Meta Ads","Google Ads","CRM","Website","Events","Other"];
+  const tasks = [];
+
+  function addEmployee(e){
+    e.id = 'E' + (++seq.emp);
+    e.active = e.active !== false;
+    employees.push(e);
+    return e;
+  }
+  function updateEmployee(id, patch){
+    const e = employees.find(x => x.id === id);
+    if (e) Object.assign(e, patch);
+    return e;
+  }
+  function addTask(t){
+    t.id = 'T' + String(++seq.task).padStart(3,'0');
+    t.comments = t.comments || [];
+    if (t.progress == null) t.progress = t.status === 'Completed' ? 100 : 0;
+    tasks.push(t);
+    return t;
+  }
+  function updateTask(id, patch){
+    const t = tasks.find(x => x.id === id);
+    if (t) Object.assign(t, patch);
+    return t;
+  }
+  function deleteTask(id){
+    const i = tasks.findIndex(x => x.id === id);
+    if (i > -1) tasks.splice(i,1);
+  }
+  function addComment(taskId, text, authorId, type){
+    const t = tasks.find(x => x.id === taskId);
+    if (!t) return;
+    t.comments.push({ id:'C'+(++seq.comment), text, authorId, type: type || 'comment', at: new Date().toISOString() });
+  }
+  function addProject(name){ name = (name||'').trim(); if (name && !projects.includes(name)) projects.push(name); }
+  function renameProject(oldName, newName){
+    newName = (newName||'').trim();
+    if (!newName) return;
+    const i = projects.indexOf(oldName);
+    if (i > -1) projects[i] = newName;
+    tasks.forEach(t => { if (t.project === oldName) t.project = newName; });
+  }
+  function addDepartment(name){ name = (name||'').trim(); if (name && !departments.includes(name)) departments.push(name); }
+  function renameDepartment(oldName, newName){
+    newName = (newName||'').trim();
+    if (!newName) return;
+    const i = departments.indexOf(oldName);
+    if (i > -1) departments[i] = newName;
+    tasks.forEach(t => { if (t.department === oldName) t.department = newName; });
+    employees.forEach(e => { if (e.department === oldName) e.department = newName; });
+  }
+
+  return { employees, departments, projects, tasks,
+    addEmployee, updateEmployee, addTask, updateTask, deleteTask, addComment,
+    addProject, renameProject, addDepartment, renameDepartment };
+})();
+
+/* =====================================================================
+   2. DATE HELPERS
+   ===================================================================== */
+function pad2(n){ return String(n).padStart(2,'0'); }
+function toISO(d){ return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate()); }
+function parseISO(s){ if(!s) return null; const p=s.split('-').map(Number); return new Date(p[0], p[1]-1, p[2]); }
+function todayDate(){ const d = new Date(); d.setHours(0,0,0,0); return d; }
+function todayISO(){ return toISO(todayDate()); }
+function addDaysISO(iso, n){ const d = parseISO(iso); d.setDate(d.getDate()+n); return toISO(d); }
+function daysBetween(isoA, isoB){ return Math.round((parseISO(isoB) - parseISO(isoA)) / 86400000); }
+function fmtDate(iso){ if(!iso) return '—'; return parseISO(iso).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); }
+function fmtDateShort(iso){ if(!iso) return '—'; return parseISO(iso).toLocaleDateString('en-US',{month:'short',day:'numeric'}); }
+function fmtDateTime(iso){ const d = new Date(iso); return d.toLocaleDateString('en-US',{month:'short',day:'numeric'}) + ' · ' + d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}); }
+function monthLabel(y,m){ return new Date(y,m,1).toLocaleDateString('en-US',{month:'long',year:'numeric'}); }
+function sameMonth(iso,y,m){ if(!iso) return false; const d = parseISO(iso); return d.getFullYear()===y && d.getMonth()===m; }
+function weekdayShort(iso){ return parseISO(iso).toLocaleDateString('en-US',{weekday:'short'}); }
+function isSameDate(isoA, isoB){ return isoA === isoB; }
+function prevMonth(y,m){ return m===0 ? {y:y-1,m:11} : {y:y,m:m-1}; }
+function nextMonth(y,m){ return m===11 ? {y:y+1,m:0} : {y:y,m:m+1}; }
+function startOfWeek(date){ const d = new Date(date); const day = d.getDay(); d.setDate(d.getDate()-day); return d; }
+
+/* =====================================================================
+   3. TASK-LEVEL / STATUS / PRIORITY META
+   ===================================================================== */
+const LEVELS = {
+  1:{label:'Basic', points:1},
+  2:{label:'Standard', points:2},
+  3:{label:'Advanced', points:3},
+  4:{label:'Critical / Strategic', points:4}
+};
+const PRIORITIES = ['Critical','High','Medium','Low'];
+const STATUSES = ['Not Started','In Progress','On Hold','Completed','Cancelled'];
+const STATUS_CLASS = {'Not Started':'notstarted','In Progress':'inprogress','On Hold':'onhold','Completed':'completed','Cancelled':'cancelled'};
+const PRIORITY_CLASS = {'Critical':'critical','High':'high','Medium':'medium','Low':'low'};
+
+function isOverdue(t){ return t.status !== 'Completed' && t.status !== 'Cancelled' && t.dueDate < todayISO(); }
+function daysRemaining(t){ return daysBetween(todayISO(), t.dueDate); }
+function daysRemainingLabel(t){
+  if (t.status === 'Completed') return 'Completed';
+  if (t.status === 'Cancelled') return '—';
+  const d = daysRemaining(t);
+  if (d < 0) return Math.abs(d) + 'd overdue';
+  if (d === 0) return 'Due today';
+  if (d === 1) return 'Due tomorrow';
+  return d + 'd left';
+}
+function priorityPill(p){ return '<span class="pill pill-'+PRIORITY_CLASS[p]+'"><span class="dot" style="background:currentColor"></span>'+p+'</span>'; }
+function statusPill(t){
+  let html = '<span class="pill pill-status-'+STATUS_CLASS[t.status]+'">'+t.status+'</span>';
+  if (isOverdue(t)) html += ' <span class="pill pill-overdue">Overdue</span>';
+  return html;
+}
+function levelBars(level){
+  let bars = '';
+  for (let i=1;i<=4;i++) bars += '<i class="'+(i<=level?'on':'')+'"></i>';
+  return '<span class="level-tag"><span class="level-bars">'+bars+'</span>L'+level+'</span>';
+}
+function levelFull(level){ return 'Level '+level+' — '+LEVELS[level].label; }
+
+/* =====================================================================
+   4. ICONS  (hand-drawn minimal line set, inline SVG, no external assets)
+   ===================================================================== */
+function icon(name, size){
+  size = size || 16;
+  const paths = {
+    grid:'<rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/>',
+    check:'<path d="M3 8.5l3 3 7-7"/>',
+    list:'<line x1="3" y1="4" x2="13" y2="4"/><line x1="3" y1="8" x2="13" y2="8"/><line x1="3" y1="12" x2="13" y2="12"/>',
+    calendar:'<rect x="2" y="3" width="12" height="11" rx="1.5"/><line x1="2" y1="6.5" x2="14" y2="6.5"/><line x1="5" y1="1.5" x2="5" y2="4"/><line x1="11" y1="1.5" x2="11" y2="4"/>',
+    folder:'<path d="M2 4.5a1 1 0 0 1 1-1h3l1.2 1.6H13a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4.5z"/>',
+    users:'<circle cx="6" cy="6" r="2.4"/><path d="M1.5 14c.5-3 2-4.4 4.5-4.4S10.5 11 11 14"/><circle cx="12" cy="6.6" r="1.8"/><path d="M11 9.6c1.8.3 2.8 1.5 3.4 3.4"/>',
+    chart:'<line x1="3" y1="14" x2="3" y2="9"/><line x1="8" y1="14" x2="8" y2="5"/><line x1="13" y1="14" x2="13" y2="7"/>',
+    gear:'<circle cx="8" cy="8" r="2.3"/><path d="M8 1.6v2M8 12.4v2M1.6 8h2M12.4 8h2M3.3 3.3l1.4 1.4M11.3 11.3l1.4 1.4M3.3 12.7l1.4-1.4M11.3 4.7l1.4-1.4"/>',
+    search:'<circle cx="6.8" cy="6.8" r="4.3"/><line x1="10.2" y1="10.2" x2="14" y2="14"/>',
+    bell:'<path d="M4 11V7a4 4 0 0 1 8 0v4l1.3 2H2.7L4 11z"/><path d="M6.3 14.5a1.8 1.8 0 0 0 3.4 0"/>',
+    plus:'<line x1="8" y1="3" x2="8" y2="13"/><line x1="3" y1="8" x2="13" y2="8"/>',
+    x:'<line x1="4" y1="4" x2="12" y2="12"/><line x1="12" y1="4" x2="4" y2="12"/>',
+    chevrondown:'<path d="M3.5 6l4.5 4.5L12.5 6"/>',
+    chevronleft:'<path d="M10 3L5 8l5 5"/>',
+    chevronright:'<path d="M6 3l5 5-5 5"/>',
+    star:'<path d="M8 1.6l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.4l-3.8 2 .7-4.3-3.1-3 4.3-.6L8 1.6z"/>',
+    clock:'<circle cx="8" cy="8" r="6.2"/><path d="M8 4.5V8l2.6 1.5"/>',
+    alert:'<path d="M8 2.2L14.5 13.5h-13L8 2.2z"/><line x1="8" y1="6.5" x2="8" y2="9.7"/><circle cx="8" cy="11.7" r="0.9" fill="currentColor" stroke="none"/>',
+    user:'<circle cx="8" cy="5.6" r="2.6"/><path d="M2.5 14c.7-3.6 2.7-5.2 5.5-5.2S12.8 10.4 13.5 14"/>',
+    edit:'<path d="M10.5 2.5l3 3L5 14H2v-3l8.5-8.5z"/>',
+    trash:'<path d="M3 4.5h10M6 4.5V3a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1.5M4.5 4.5V13a1 1 0 0 0 1 1h5a1 1 0 0 0 1-1V4.5"/>',
+    download:'<path d="M8 2.5v7.5M4.7 7.2 8 10.5l3.3-3.3"/><line x1="3" y1="13" x2="13" y2="13"/>',
+    print:'<path d="M4.5 6.5V2.5h7v4"/><rect x="2.5" y="6.5" width="11" height="5" rx="1"/><rect x="4.5" y="9.5" width="7" height="4"/>',
+    message:'<path d="M2.5 3.5h11v7.5h-6L4.5 13.5v-2.5H2.5v-7.5z"/>',
+    filter:'<path d="M2.5 3h11L9.5 8.2v4.3L6.5 14V8.2L2.5 3z"/>',
+    arrowup:'<line x1="8" y1="13" x2="8" y2="3"/><path d="M4.5 6.5L8 3l3.5 3.5"/>',
+    arrowdown:'<line x1="8" y1="3" x2="8" y2="13"/><path d="M4.5 9.5L8 13l3.5-3.5"/>',
+    inbox:'<path d="M2 9.5h3.2l1 2h3.6l1-2H14"/><path d="M2 9.5 3.6 3h8.8L14 9.5v3A1.5 1.5 0 0 1 12.5 14h-9A1.5 1.5 0 0 1 2 12.5v-3z"/>',
+    sparkle:'<path d="M8 2v3M8 11v3M2 8h3M11 8h3M4 4l2 2M10 10l2 2M4 12l2-2M10 6l2-2"/>'
+  };
+  return '<svg width="'+size+'" height="'+size+'" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">'+(paths[name]||'')+'</svg>';
+}
+function avatarColor(seed){
+  const palette = ['#1F5E58','#8C6425','#2E5FA3','#AC3434','#6B4FA0','#3E7A3E','#A0527A','#4B6A8C'];
+  let h = 0; for (let i=0;i<seed.length;i++) h = (h*31 + seed.charCodeAt(i)) >>> 0;
+  return palette[h % palette.length];
+}
+function initials(name){ return name.split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase(); }
+function avatar(emp, size){
+  size = size || 26;
+  const cls = size >= 40 ? 'avatar lg' : 'avatar';
+  return '<span class="'+cls+'" style="width:'+size+'px;height:'+size+'px;background:'+avatarColor(emp.id)+';font-size:'+Math.round(size*0.4)+'px">'+initials(emp.name)+'</span>';
+}
+
+/* =====================================================================
+   5. DEMO DATA
+   Anchored around the app's real "today" so Overdue / Due-Today / This-
+   Week alerts are meaningful when the app is opened. Historical months
+   (two months back and one month back) are fully resolved so Monthly
+   Reports and Month-over-Month comparisons have real data to compare.
+   ===================================================================== */
+function seedDemoData(){
+  const admin = DB.addEmployee({ name:'Ananya Rao', role:'admin', department:'Management', title:'Marketing Director', joinDate:'2022-03-01' });
+  const rohan = DB.addEmployee({ name:'Rohan Mehta', role:'member', department:'Digital Marketing', title:'Performance Marketing Lead', joinDate:'2022-07-15' });
+  const priya = DB.addEmployee({ name:'Priya Nair', role:'member', department:'Creative', title:'Creative Designer', joinDate:'2023-01-10' });
+  const karan = DB.addEmployee({ name:'Karan Shah', role:'member', department:'Sales', title:'Sales Manager', joinDate:'2021-11-02' });
+  const divya = DB.addEmployee({ name:'Divya Kapoor', role:'member', department:'CRM', title:'CRM Executive', joinDate:'2023-06-01' });
+  const arjun = DB.addEmployee({ name:'Arjun Verma', role:'member', department:'Operations', title:'Operations Executive', joinDate:'2022-09-20' });
+  const sana  = DB.addEmployee({ name:'Sana Iqbal', role:'member', department:'Digital Marketing', title:'Social Media Executive', joinDate:'2024-02-12' });
+
+  const today = todayDate();
+  const y = today.getFullYear(), m = today.getMonth();
+  const m1 = prevMonth(y,m), m2 = prevMonth(m1.y,m1.m); // last month, two months ago
+  const cur = {y,m}, last = m1, prior = m2;
+
+  function d(monthObj, day){ return monthObj.y+'-'+pad2(monthObj.m+1)+'-'+pad2(Math.min(day,28)); }
+
+  function T(o){
+    const t = {
+      name:o.name, description:o.description, assignedTo:o.assignedTo, assignedBy:admin.id,
+      department:o.department, project:o.project, createdDate:addDaysISO(o.start,-2), startDate:o.start,
+      dueDate:o.due, priority:o.priority, level:o.level, status:o.status,
+      estimatedHours:o.est, actualHours:o.actual != null ? o.actual : null,
+      completionDate:o.completed || null, progress:o.progress != null ? o.progress : (o.status==='Completed'?100:0),
+      completionNotes:o.notes || ''
+    };
+    const task = DB.addTask(t);
+    (o.comments||[]).forEach(c => DB.addComment(task.id, c.text, c.by, c.type));
+    return task;
+  }
+
+  /* ---- PRIOR MONTH (fully resolved — baseline for MoM trend) ---- */
+  T({name:'Q'+ (prior.m+1) +' social content calendar', description:'Plan and schedule Instagram/Facebook content for the month across all active listings.', assignedTo:rohan.id, department:'Digital Marketing', project:'Digital Marketing', level:2, priority:'Medium', start:d(prior,2), due:d(prior,7), status:'Completed', est:8, actual:7, completed:d(prior,6)+'T16:20:00', progress:100, notes:'Calendar approved and scheduled a week ahead of plan.'});
+  T({name:'Meta Ads creative refresh — Keystone Seasons', description:'Refresh underperforming carousel creatives for the Keystone Seasons campaign.', assignedTo:rohan.id, department:'Digital Marketing', project:'Meta Ads', level:3, priority:'High', start:d(prior,3), due:d(prior,10), status:'Completed', est:10, actual:12, completed:d(prior,13)+'T11:00:00', progress:100, notes:'New creatives live; CTR up 0.4pp vs prior set.'});
+  T({name:'Google Ads budget reallocation', description:'Reallocate monthly budget across search campaigns based on lead quality.', assignedTo:rohan.id, department:'Digital Marketing', project:'Google Ads', level:2, priority:'Medium', start:d(prior,12), due:d(prior,16), status:'Completed', est:4, actual:4, completed:d(prior,15)+'T10:00:00', progress:100, notes:'Budget shifted toward top 3 performing campaigns.'});
+  T({name:'Landing page copy — Tonino Lamborghini', description:'Write hero and amenities copy for the new landing page.', assignedTo:priya.id, department:'Creative', project:'Tonino Lamborghini', level:3, priority:'High', start:d(prior,4), due:d(prior,11), status:'Completed', est:9, actual:10, completed:d(prior,14)+'T17:00:00', progress:100, notes:'Copy delivered; approved by client after one revision round.'});
+  T({name:'Brochure redesign — Keystone Elevate', description:'Redesign the print brochure with updated floor plans and pricing.', assignedTo:priya.id, department:'Creative', project:'Keystone Elevate', level:2, priority:'Medium', start:d(prior,8), due:d(prior,14), status:'Completed', est:8, actual:8, completed:d(prior,13)+'T15:00:00', progress:100, notes:'Final PDF sent to print vendor.'});
+  T({name:'Site walkthrough video edit', description:'Edit raw drone + walkthrough footage into a 90s reel.', assignedTo:priya.id, department:'Creative', project:'Keystone Seasons', level:2, priority:'Low', start:d(prior,18), due:d(prior,24), status:'Completed', est:6, actual:9, completed:d(prior,27)+'T18:30:00', progress:100, notes:'Delivered 3 days late due to footage re-shoot.'});
+  T({name:'Weekly site-visit follow-ups', description:'Call all prospects from weekend site visits within 48 hours.', assignedTo:karan.id, department:'Sales', project:'Keystone Seasons', level:1, priority:'High', start:d(prior,2), due:d(prior,5), status:'Completed', est:5, actual:5, completed:d(prior,5)+'T12:00:00', progress:100, notes:'12/14 prospects reached; 3 site-visit rebookings.'});
+  T({name:'Channel partner commission review', description:'Reconcile broker commission claims for closed units.', assignedTo:karan.id, department:'Sales', project:'Keystone Elevate', level:3, priority:'Critical', start:d(prior,10), due:d(prior,17), status:'Completed', est:8, actual:8, completed:d(prior,17)+'T13:00:00', progress:100, notes:'All claims reconciled and approved by accounts.'});
+  T({name:'CRM data de-duplication', description:'Merge duplicate lead records created from multi-channel campaigns.', assignedTo:divya.id, department:'CRM', project:'CRM', level:2, priority:'Medium', start:d(prior,6), due:d(prior,12), status:'Completed', est:6, actual:5, completed:d(prior,11)+'T09:30:00', progress:100, notes:'412 duplicate records merged.'});
+  T({name:'Vendor payment tracker setup', description:'Set up a shared tracker for creative & media vendor payments.', assignedTo:arjun.id, department:'Operations', project:'Other', level:1, priority:'Low', start:d(prior,15), due:d(prior,20), status:'Completed', est:3, actual:3, completed:d(prior,19)+'T14:00:00', progress:100, notes:'Tracker shared with accounts team.'});
+  T({name:'Show-flat maintenance schedule', description:'Coordinate housekeeping and repair schedule for the show-flat.', assignedTo:arjun.id, department:'Operations', project:'Keystone Seasons', level:1, priority:'Medium', start:d(prior,20), due:d(prior,26), status:'Completed', est:4, actual:6, completed:d(prior,29)+'T11:00:00', progress:100, notes:'Delayed by 3 days — vendor availability.'});
+  T({name:'Instagram reels batch — Q'+(prior.m+1), description:'Shoot and publish 6 short-form reels for the month.', assignedTo:sana.id, department:'Digital Marketing', project:'Digital Marketing', level:2, priority:'Medium', start:d(prior,3), due:d(prior,9), status:'Completed', est:10, actual:9, completed:d(prior,9)+'T16:00:00', progress:100, notes:'All 6 reels published on schedule.'});
+
+  /* ---- LAST MONTH (fully resolved, one still overdue-and-open to carry into current month) ---- */
+  T({name:'Monthly performance report — internal', description:'Compile last month\'s campaign performance for leadership review.', assignedTo:rohan.id, department:'Digital Marketing', project:'Digital Marketing', level:3, priority:'High', start:d(last,2), due:d(last,6), status:'Completed', est:6, actual:6, completed:d(last,5)+'T10:00:00', progress:100, notes:'Report presented at leadership sync.'});
+  T({name:'Meta pixel & CAPI audit', description:'Audit event tracking accuracy across all active Meta pixels.', assignedTo:rohan.id, department:'Digital Marketing', project:'Meta Ads', level:3, priority:'Critical', start:d(last,8), due:d(last,15), status:'Completed', est:9, actual:11, completed:d(last,18)+'T15:00:00', progress:100, notes:'Fixed 2 mis-tagged conversion events.'});
+  T({name:'Google Ads negative keyword cleanup', description:'Review search terms report and expand negative keyword lists.', assignedTo:rohan.id, department:'Digital Marketing', project:'Google Ads', level:1, priority:'Low', start:d(last,20), due:d(last,24), status:'Completed', est:3, actual:2, completed:d(last,23)+'T09:00:00', progress:100, notes:'Wasted spend reduced ~8%.'});
+  T({name:'Digital campaign brief — Tonino Lamborghini launch', description:'Own the end-to-end digital go-to-market brief for the launch, including budget, funnel and creative direction.', assignedTo:rohan.id, department:'Digital Marketing', project:'Tonino Lamborghini', level:4, priority:'Critical', start:d(last,26), due:d(last,28), status:'In Progress', est:14, actual:9, progress:60, comments:[{by:rohan.id, text:'Budget and funnel sections done; waiting on final creative direction from Priya before closing this out.', type:'comment'}]});
+  T({name:'Amenity photography — Keystone Elevate', description:'Coordinate and art-direct a photoshoot of the newly completed amenities.', assignedTo:priya.id, department:'Creative', project:'Keystone Elevate', level:2, priority:'Medium', start:d(last,3), due:d(last,9), status:'Completed', est:7, actual:7, completed:d(last,9)+'T17:00:00', progress:100, notes:'42 final images delivered to the digital team.'});
+  T({name:'Client presentation deck — Tonino Lamborghini', description:'Design the investor-facing presentation deck for the upcoming launch.', assignedTo:priya.id, department:'Creative', project:'Tonino Lamborghini', level:3, priority:'High', start:d(last,10), due:d(last,17), status:'Completed', est:10, actual:14, completed:d(last,22)+'T18:00:00', progress:100, notes:'Delivered 5 days late — three rounds of client revisions.'});
+  T({name:'Brand guideline refresh', description:'Update the master brand guideline document with new typography rules.', assignedTo:priya.id, department:'Creative', project:'Other', level:2, priority:'Low', start:d(last,19), due:d(last,25), status:'Completed', est:6, actual:5, completed:d(last,24)+'T13:00:00', progress:100, notes:'Published to shared drive.'});
+  T({name:'Broker network briefing — Keystone Seasons', description:'Present updated pricing and inventory to the broker network.', assignedTo:karan.id, department:'Sales', project:'Keystone Seasons', level:2, priority:'High', start:d(last,4), due:d(last,8), status:'Completed', est:5, actual:5, completed:d(last,8)+'T12:00:00', progress:100, notes:'38 brokers attended; positive response.'});
+  T({name:'Site visit conversion analysis', description:'Analyse site-visit to booking conversion by source for the quarter.', assignedTo:karan.id, department:'Sales', project:'Keystone Elevate', level:3, priority:'Medium', start:d(last,11), due:d(last,18), status:'Completed', est:8, actual:8, completed:d(last,17)+'T16:00:00', progress:100, notes:'Referral channel has the highest conversion at 22%.'});
+  T({name:'Unit inventory reconciliation', description:'Reconcile sold/held/available unit inventory against the CRM.', assignedTo:karan.id, department:'Sales', project:'Keystone Elevate', level:2, priority:'Critical', start:d(last,21), due:d(last,23), status:'Completed', est:4, actual:6, completed:d(last,27)+'T10:00:00', progress:100, notes:'Delivered late — discrepancy required finance sign-off.'});
+  T({name:'CRM lead-scoring rule update', description:'Update lead scoring rules to weight site-visit intent higher.', assignedTo:divya.id, department:'CRM', project:'CRM', level:2, priority:'Medium', start:d(last,5), due:d(last,10), status:'Completed', est:5, actual:5, completed:d(last,10)+'T11:00:00', progress:100, notes:'Rules live; scoring accuracy improved in early testing.'});
+  T({name:'Monthly CRM data quality audit', description:'Audit lead records for missing / malformed contact data.', assignedTo:divya.id, department:'CRM', project:'CRM', level:1, priority:'Low', start:d(last,15), due:d(last,19), status:'Completed', est:3, actual:3, completed:d(last,18)+'T09:00:00', progress:100, notes:'96% of records now pass validation.'});
+  T({name:'Event logistics — investor preview', description:'Coordinate venue, catering and AV for the investor preview event.', assignedTo:arjun.id, department:'Operations', project:'Events', level:3, priority:'High', start:d(last,6), due:d(last,13), status:'Completed', est:12, actual:15, completed:d(last,19)+'T20:00:00', progress:100, notes:'Event ran smoothly; delivered late due to venue confirmation delays.'});
+  T({name:'Reels + stories batch — last month', description:'Produce and publish weekly short-form content batch.', assignedTo:sana.id, department:'Digital Marketing', project:'Digital Marketing', level:2, priority:'Medium', start:d(last,2), due:d(last,8), status:'Completed', est:9, actual:8, completed:d(last,7)+'T15:00:00', progress:100, notes:'Best-performing reel hit 40k views.'});
+  T({name:'Influencer outreach — Keystone Seasons', description:'Shortlist and reach out to local lifestyle influencers for a paid collab.', assignedTo:sana.id, department:'Digital Marketing', project:'Keystone Seasons', level:2, priority:'Medium', start:d(last,12), due:d(last,19), status:'Completed', est:7, actual:9, completed:d(last,23)+'T14:00:00', progress:100, notes:'2 collabs confirmed for next month.'});
+
+  /* ---- CURRENT MONTH (live workload — mix of every status, overdue, due-today/tomorrow/this-week, unassigned) ---- */
+  const t = today.getDate();
+  T({name:'New client ad account audit', description:'Audit ad account structure and tracking setup for a newly onboarded client.', assignedTo:rohan.id, department:'Digital Marketing', project:'Google Ads', level:2, priority:'Medium', start:d(cur,Math.max(1,t-8)), due:d(cur,Math.max(1,t-5)), status:'Completed', est:5, actual:4, completed:d(cur,Math.max(1,t-5))+'T14:00:00', progress:100, notes:'Account structure documented; 2 tracking gaps fixed.'});
+  T({name:'Meta Ads creative refresh — '+monthLabel(cur.y,cur.m), description:'Produce and launch a fresh carousel + reel creative set for active campaigns.', assignedTo:rohan.id, department:'Digital Marketing', project:'Meta Ads', level:3, priority:'High', start:d(cur,Math.max(1,t-9)), due:d(cur,Math.max(1,t-3)), status:'In Progress', est:10, actual:6, progress:50, comments:[{by:rohan.id,text:'First 3 creatives are live; waiting on Priya for the remaining set before this can close.', type:'comment'}]});
+  T({name:'Search campaign restructure', description:'Restructure Google Ads account into tighter ad groups by project.', assignedTo:rohan.id, department:'Digital Marketing', project:'Google Ads', level:2, priority:'Medium', start:d(cur,Math.max(1,t-6)), due:d(cur,Math.max(1,t-1)), status:'Not Started', est:6, actual:null, progress:0});
+  T({name:'Website conversion audit', description:'Audit the project landing pages for form-fill drop-off points.', assignedTo:rohan.id, department:'Digital Marketing', project:'Website', level:3, priority:'Critical', start:d(cur,Math.max(1,t-4)), due:d(cur,t), status:'In Progress', est:8, actual:5, progress:75});
+  T({name:'Weekly paid media report', description:'Compile the weekly cross-channel paid media performance report.', assignedTo:rohan.id, department:'Digital Marketing', project:'Digital Marketing', level:1, priority:'Medium', start:d(cur,Math.max(1,t-1)), due:d(cur,t+1), status:'Not Started', est:2, actual:null, progress:0});
+  T({name:'Q'+(cur.m+1)+' media plan draft', description:'Draft next quarter\'s cross-channel media plan and budget split.', assignedTo:rohan.id, department:'Digital Marketing', project:'Digital Marketing', level:4, priority:'High', start:d(cur,t+2), due:d(cur,Math.min(28,t+16)), status:'Not Started', est:12, actual:null, progress:0});
+
+  T({name:'Social asset pack — Google Display', description:'Design a set of static and animated display banners for the Google Display network.', assignedTo:priya.id, department:'Creative', project:'Google Ads', level:2, priority:'Medium', start:d(cur,Math.max(1,t-9)), due:d(cur,Math.max(1,t-6)), status:'Completed', est:6, actual:6, completed:d(cur,Math.max(1,t-6))+'T16:00:00', progress:100, notes:'8 banner sizes delivered, all within brand guidelines.'});
+  T({name:'Show-flat signage design', description:'Design updated wayfinding and pricing signage for the show-flat.', assignedTo:priya.id, department:'Creative', project:'Keystone Seasons', level:1, priority:'Low', start:d(cur,Math.max(1,t-8)), due:d(cur,Math.max(1,t-2)), status:'On Hold', est:4, actual:1, progress:25, comments:[{by:priya.id,text:'Paused — waiting on finalized pricing sheet from sales before signage can be produced.', type:'comment'}]});
+  T({name:'Landing page hero visuals — Tonino Lamborghini', description:'Design the hero and gallery visuals for the launch landing page.', assignedTo:priya.id, department:'Creative', project:'Tonino Lamborghini', level:3, priority:'Critical', start:d(cur,Math.max(1,t-5)), due:d(cur,t), status:'In Progress', est:10, actual:7, progress:75});
+  T({name:'Email newsletter template refresh', description:'Redesign the monthly newsletter template with the updated brand kit.', assignedTo:priya.id, department:'Creative', project:'Other', level:2, priority:'Medium', start:d(cur,Math.max(1,t-2)), due:d(cur,t+1), status:'In Progress', est:6, actual:3, progress:50});
+  T({name:'Print ad — regional newspaper', description:'Design a full-page print ad for the regional weekend edition.', assignedTo:priya.id, department:'Creative', project:'Keystone Elevate', level:2, priority:'High', start:d(cur,t), due:d(cur,t+2), status:'Not Started', est:6, actual:null, progress:0});
+  T({name:'Founder LinkedIn content pack', description:'Draft 4 LinkedIn posts for the founder\'s personal brand presence.', assignedTo:priya.id, department:'Creative', project:'Other', level:1, priority:'Low', start:d(cur,t+3), due:d(cur,Math.min(28,t+12)), status:'Not Started', est:4, actual:null, progress:0});
+
+  T({name:'Weekly site-visit follow-ups', description:'Call all prospects from the past week\'s site visits within 48 hours.', assignedTo:karan.id, department:'Sales', project:'Keystone Seasons', level:1, priority:'High', start:d(cur,Math.max(1,t-4)), due:d(cur,Math.max(1,t-1)), status:'Completed', est:5, actual:5, completed:d(cur,Math.max(1,t-1))+'T12:00:00', progress:100, notes:'11/13 prospects reached; 2 site-visit rebookings confirmed.'});
+  T({name:'Quarterly broker incentive proposal', description:'Draft a revised incentive structure for top-performing channel partners.', assignedTo:karan.id, department:'Sales', project:'Keystone Elevate', level:4, priority:'Critical', start:d(cur,Math.max(1,t-7)), due:d(cur,Math.max(1,t-2)), status:'In Progress', est:12, actual:8, progress:75, comments:[{by:karan.id,text:'Draft ready, final sign-off pending from Ananya before circulating to brokers.', type:'comment'}]});
+  T({name:'Unsold inventory pricing review', description:'Review pricing for units unsold beyond 90 days and propose adjustments.', assignedTo:karan.id, department:'Sales', project:'Keystone Seasons', level:3, priority:'High', start:d(cur,Math.max(1,t-3)), due:d(cur,t), status:'In Progress', est:8, actual:4, progress:50});
+  T({name:'Sales team weekly huddle notes', description:'Circulate action items from the weekly sales huddle.', assignedTo:karan.id, department:'Sales', project:'Other', level:1, priority:'Low', start:d(cur,t), due:d(cur,t+1), status:'Not Started', est:1, actual:null, progress:0});
+  T({name:'NRI investor outreach — '+monthLabel(cur.y,cur.m), description:'Follow up with the NRI investor list generated from the last webinar.', assignedTo:karan.id, department:'Sales', project:'Tonino Lamborghini', level:2, priority:'Medium', start:d(cur,t+1), due:d(cur,Math.min(28,t+9)), status:'Not Started', est:6, actual:null, progress:0});
+
+  T({name:'CRM pipeline hygiene sweep', description:'Close out stale leads and correct pipeline stage mismatches.', assignedTo:divya.id, department:'CRM', project:'CRM', level:1, priority:'Medium', start:d(cur,Math.max(1,t-6)), due:d(cur,Math.max(1,t-2)), status:'Completed', est:4, actual:4, completed:d(cur,Math.max(1,t-2))+'T11:00:00', progress:100, notes:'187 stale leads archived; pipeline stages corrected.'});
+  T({name:'Automated nurture sequence — Keystone Seasons', description:'Build a 5-step email nurture sequence for warm, unconverted leads.', assignedTo:divya.id, department:'CRM', project:'CRM', level:3, priority:'High', start:d(cur,Math.max(1,t-5)), due:d(cur,t), status:'In Progress', est:9, actual:6, progress:75});
+  T({name:'WhatsApp broadcast — site visit reminder', description:'Send a scheduled WhatsApp reminder to all confirmed weekend site visits.', assignedTo:divya.id, department:'CRM', project:'CRM', level:1, priority:'High', start:d(cur,t), due:d(cur,t), status:'Not Started', est:1, actual:null, progress:0});
+  T({name:'CRM-to-accounts handoff SOP', description:'Document the standard process for handing off booked leads to accounts.', assignedTo:divya.id, department:'CRM', project:'CRM', level:2, priority:'Medium', start:d(cur,t+1), due:d(cur,t+4), status:'Not Started', est:5, actual:null, progress:0});
+
+  T({name:'Office AMC renewal — IT & facilities', description:'Renew annual maintenance contracts for office IT equipment and facilities.', assignedTo:arjun.id, department:'Operations', project:'Other', level:1, priority:'Medium', start:d(cur,Math.max(1,t-7)), due:d(cur,Math.max(1,t-4)), status:'Completed', est:3, actual:3, completed:d(cur,Math.max(1,t-4))+'T12:00:00', progress:100, notes:'All 3 contracts renewed ahead of expiry.'});
+  T({name:'Show-flat maintenance schedule', description:'Coordinate housekeeping, repairs and staffing roster for the show-flat.', assignedTo:arjun.id, department:'Operations', project:'Keystone Seasons', level:1, priority:'Medium', start:d(cur,Math.max(1,t-9)), due:d(cur,Math.max(1,t-4)), status:'In Progress', est:4, actual:2, progress:25, comments:[{by:arjun.id,text:'Housekeeping vendor confirmed; repair vendor still pending quote.', type:'comment'}]});
+  T({name:'Investor preview — venue logistics', description:'Lock venue, catering and AV for the upcoming investor preview.', assignedTo:arjun.id, department:'Operations', project:'Events', level:3, priority:'Critical', start:d(cur,Math.max(1,t-3)), due:d(cur,t+1), status:'In Progress', est:11, actual:5, progress:50});
+  T({name:'Vendor contract renewals — Q'+(cur.m+1), description:'Review and renew expiring vendor contracts across marketing and ops.', assignedTo:arjun.id, department:'Operations', project:'Other', level:2, priority:'Medium', start:d(cur,t+2), due:d(cur,Math.min(28,t+11)), status:'Not Started', est:6, actual:null, progress:0});
+
+  T({name:'Reels batch — '+monthLabel(cur.y,cur.m), description:'Shoot, edit and publish the monthly short-form content batch.', assignedTo:sana.id, department:'Digital Marketing', project:'Digital Marketing', level:2, priority:'Medium', start:d(cur,Math.max(1,t-7)), due:d(cur,Math.max(1,t-1)), status:'Completed', est:10, actual:9, completed:d(cur,Math.max(1,t-1))+'T16:00:00', progress:100, notes:'6 reels published; two exceeded 25k views.'});
+  T({name:'Influencer collab content review', description:'Review and approve content drafts from the confirmed influencer collabs.', assignedTo:sana.id, department:'Digital Marketing', project:'Keystone Seasons', level:2, priority:'High', start:d(cur,Math.max(1,t-2)), due:d(cur,t), status:'In Progress', est:5, actual:2, progress:25});
+  T({name:'Community comment & DM response sweep', description:'Clear the backlog of Instagram/Facebook comments and DMs.', assignedTo:sana.id, department:'Digital Marketing', project:'Digital Marketing', level:1, priority:'Low', start:d(cur,t), due:d(cur,t+2), status:'Not Started', est:2, actual:null, progress:0});
+  T({name:'Meta Ads UGC testing batch', description:'Test a batch of UGC-style ad creatives against the current top performer.', assignedTo:sana.id, department:'Digital Marketing', project:'Meta Ads', level:3, priority:'High', start:d(cur,t+2), due:d(cur,Math.min(28,t+10)), status:'Not Started', est:8, actual:null, progress:0});
+
+  T({name:'Monthly leadership performance review', description:'Prepare the cross-team performance summary for the leadership review.', assignedTo:admin.id, department:'Management', project:'Other', level:4, priority:'Critical', start:d(cur,Math.max(1,t-3)), due:d(cur,t+3), status:'In Progress', est:6, actual:3, progress:50});
+  T({name:'Team resourcing review — '+monthLabel(cur.y,cur.m), description:'Review current workload distribution and flag re-balancing needs.', assignedTo:admin.id, department:'Management', project:'Other', level:2, priority:'Medium', start:d(cur,t), due:d(cur,t+5), status:'Not Started', est:3, actual:null, progress:0});
+  T({name:'Website homepage refresh brief', description:'Write the creative brief for the homepage visual refresh — needs an owner.', assignedTo:null, department:'Digital Marketing', project:'Website', level:2, priority:'Medium', start:d(cur,t), due:d(cur,t+7), status:'Not Started', est:5, actual:null, progress:0});
+  T({name:'Diwali campaign concept', description:'Concept and pitch the festive-season campaign direction — needs an owner.', assignedTo:null, department:'Creative', project:'Other', level:3, priority:'High', start:d(cur,t+1), due:d(cur,Math.min(28,t+14)), status:'Not Started', est:8, actual:null, progress:0});
+}
+
+/* =====================================================================
+   6. BUSINESS LOGIC — stats, efficiency score, reports
+   ===================================================================== */
+function tasksForEmployeeInMonth(empId, y, m){
+  return DB.tasks.filter(t => t.assignedTo === empId && t.dueDate && sameMonth(t.dueDate, y, m));
+}
+
+function computeStats(taskList){
+  const completed = taskList.filter(t => t.status === 'Completed');
+  const cancelled = taskList.filter(t => t.status === 'Cancelled');
+  const overdue = taskList.filter(isOverdue);
+  const inProgress = taskList.filter(t => t.status === 'In Progress' && !isOverdue(t));
+  const onHold = taskList.filter(t => t.status === 'On Hold' && !isOverdue(t));
+  const notStarted = taskList.filter(t => t.status === 'Not Started' && !isOverdue(t));
+  const pending = taskList.filter(t => (t.status === 'Not Started' || t.status === 'On Hold') && !isOverdue(t));
+  const activeAssigned = taskList.length - cancelled.length;
+
+  const completionRate = activeAssigned > 0 ? (completed.length / activeAssigned * 100) : 0;
+  const onTime = completed.filter(t => t.completionDate && t.completionDate.slice(0,10) <= t.dueDate);
+  const onTimeRate = completed.length > 0 ? (onTime.length / completed.length * 100) : 0;
+  const taskPoints = completed.reduce((s,t) => s + t.level, 0);
+  const maxPoints = completed.length * 4;
+  const difficultyScore = completed.length > 0 ? (taskPoints / maxPoints * 100) : 0;
+  const deadlineDiscipline = activeAssigned > 0 ? Math.max(0, 100 - (overdue.length / activeAssigned * 100)) : 100;
+
+  const weekly = [0,0,0,0,0];
+  completed.forEach(t => {
+    if (t.completionDate){ const dt = new Date(t.completionDate); const wk = Math.min(4, Math.floor((dt.getDate()-1)/7)); weekly[wk]++; }
+  });
+  let consistency;
+  if (completed.length === 0) consistency = 0;
+  else if (completed.length === 1) consistency = 55;
+  else {
+    const mean = completed.length / 5;
+    const variance = weekly.reduce((s,w) => s + Math.pow(w-mean,2), 0) / 5;
+    const sd = Math.sqrt(variance);
+    const cov = mean > 0 ? sd/mean : 0;
+    consistency = Math.max(0, Math.min(100, 100 - cov*60));
+  }
+  const efficiency = completionRate*0.30 + onTimeRate*0.30 + difficultyScore*0.20 + deadlineDiscipline*0.10 + consistency*0.10;
+
+  return {
+    assigned: taskList.length, activeAssigned, completed: completed.length, cancelled: cancelled.length,
+    overdue: overdue.length, inProgress: inProgress.length, onHold: onHold.length, notStarted: notStarted.length,
+    pending: pending.length, completionRate, onTimeRate, taskPoints, maxPoints, difficultyScore,
+    deadlineDiscipline, consistency, efficiency, weekly
+  };
+}
+
+function companyStats(taskList){
+  const all = taskList.filter(t => t.status !== 'Cancelled');
+  const completed = all.filter(t => t.status === 'Completed');
+  const overdue = all.filter(isOverdue);
+  const inProgress = all.filter(t => t.status === 'In Progress' && !isOverdue(t));
+  const pending = all.filter(t => (t.status === 'Not Started' || t.status === 'On Hold') && !isOverdue(t));
+  const onTime = completed.filter(t => t.completionDate && t.completionDate.slice(0,10) <= t.dueDate);
+  const durations = completed.filter(t => t.startDate && t.completionDate).map(t => daysBetween(t.startDate, t.completionDate.slice(0,10)));
+  const avgCompletionDays = durations.length ? (durations.reduce((a,b)=>a+b,0)/durations.length) : 0;
+  const today = todayDate();
+  const members = DB.employees.filter(e => e.role === 'member' && e.active);
+  const effs = members.map(e => computeStats(tasksForEmployeeInMonth(e.id, today.getFullYear(), today.getMonth())).efficiency);
+  const teamEfficiency = effs.length ? effs.reduce((a,b)=>a+b,0)/effs.length : 0;
+  return {
+    total: all.length, completed: completed.length, inProgress: inProgress.length, pending: pending.length, overdue: overdue.length,
+    completionRate: all.length ? completed.length/all.length*100 : 0,
+    onTimeRate: completed.length ? onTime.length/completed.length*100 : 0,
+    avgCompletionDays, teamEfficiency
+  };
+}
+
+function leaderboard(y, m, opts){
+  opts = opts || {};
+  let members = DB.employees.filter(e => e.role === 'member' && e.active);
+  if (opts.dept && opts.dept !== 'All') members = members.filter(e => e.department === opts.dept);
+  if (opts.employee && opts.employee !== 'All') members = members.filter(e => e.id === opts.employee);
+  return members.map(e => {
+    let list = tasksForEmployeeInMonth(e.id, y, m);
+    if (opts.project && opts.project !== 'All') list = list.filter(t => t.project === opts.project);
+    if (opts.level && opts.level !== 'All') list = list.filter(t => t.level === Number(opts.level));
+    return { employee: e, stats: computeStats(list) };
+  }).sort((a,b) => b.stats.efficiency - a.stats.efficiency);
+}
+
+function momCompare(empId, y1, m1, y2, m2){
+  const s1 = computeStats(tasksForEmployeeInMonth(empId, y1, m1));
+  const s2 = computeStats(tasksForEmployeeInMonth(empId, y2, m2));
+  function pct(a,b){ if (Math.abs(a) < 0.001) return b===0 ? 0 : 100; return ((b-a)/a*100); }
+  return {
+    prev:{year:y1, month:m1, stats:s1}, curr:{year:y2, month:m2, stats:s2},
+    delta:{
+      efficiency: s2.efficiency - s1.efficiency, efficiencyPct: pct(s1.efficiency, s2.efficiency),
+      completionRate: s2.completionRate - s1.completionRate, onTimeRate: s2.onTimeRate - s1.onTimeRate,
+      completed: s2.completed - s1.completed, overdue: s2.overdue - s1.overdue
+    }
+  };
+}
+function trendLabel(delta){ if (Math.abs(delta) < 1.5) return 'Stable'; return delta > 0 ? 'Improved' : 'Declined'; }
+function trendClass(delta){ if (Math.abs(delta) < 1.5) return 'trend-flat'; return delta > 0 ? 'trend-up' : 'trend-down'; }
+
+function aiSummary(emp, stats, mom){
+  const name = emp.name.split(' ')[0];
+  const parts = [];
+  parts.push(emp.name + ' completed ' + Math.round(stats.completionRate) + '% of assigned tasks this month and maintained a ' + Math.round(stats.onTimeRate) + '% on-time completion rate.');
+  if (mom){
+    const lbl = trendLabel(mom.delta.efficiency);
+    if (lbl === 'Stable') parts.push('Overall efficiency remained stable compared with the previous month (' + Math.round(mom.prev.stats.efficiency) + ' → ' + Math.round(mom.curr.stats.efficiency) + ').');
+    else parts.push('Efficiency ' + lbl.toLowerCase() + ' from ' + Math.round(mom.prev.stats.efficiency) + ' to ' + Math.round(mom.curr.stats.efficiency) + ' (' + (mom.delta.efficiencyPct>=0?'+':'') + mom.delta.efficiencyPct.toFixed(1) + '%) compared with the previous month.');
+  }
+  if (stats.completed > 0){
+    const avgLevel = Math.round((stats.taskPoints/stats.completed) * 10) / 10;
+    parts.push('The employee completed ' + stats.completed + ' task' + (stats.completed===1?'':'s') + ' this month with an average task level of ' + avgLevel.toFixed(1) + ' out of 4.');
+  } else {
+    parts.push('No tasks were completed by ' + name + ' this month.');
+  }
+
+  const strengths = [], improve = [];
+  if (stats.onTimeRate >= 85) strengths.push('Strong deadline management');
+  if (stats.completionRate >= 85) strengths.push('High completion rate');
+  if (stats.difficultyScore >= 65) strengths.push('Consistently takes on higher-complexity work');
+  if (stats.consistency >= 75) strengths.push('Steady output spread across the month');
+  if (strengths.length === 0) strengths.push('Maintains baseline task throughput');
+
+  if (stats.overdue > 0) improve.push('Reduce overdue tasks (' + stats.overdue + ' this month)');
+  if (stats.onTimeRate < 70) improve.push('Improve on-time delivery rate');
+  if (stats.consistency < 50) improve.push('Spread task completion more evenly across the month');
+  if (stats.completionRate < 60) improve.push('Increase overall task completion rate');
+  if (improve.length === 0) improve.push('No significant gaps identified this month');
+
+  let recommendation;
+  if (stats.overdue > 0) recommendation = 'Prioritize the ' + stats.overdue + ' overdue task' + (stats.overdue===1?'':'s') + ' and review current workload with the manager.';
+  else if (stats.consistency < 50) recommendation = 'Encourage earlier starts on assigned tasks to avoid end-of-month clustering.';
+  else if (stats.difficultyScore < 40 && stats.completionRate >= 80) recommendation = 'Consider assigning more Level 3–4 tasks to build strategic project experience.';
+  else recommendation = 'Maintain current workflow — performance is on track.';
+
+  return { summary: parts.join(' '), strengths, improve, recommendation };
+}
+
+/* =====================================================================
+   7. APP STATE + RENDER LOOP
+   ===================================================================== */
+const today0 = todayDate();
+const state = {
+  currentUserId: null,
+  view: 'dashboard',
+  search: '',
+  notifOpen: false,
+  modal: null,
+  taskDraft: null,
+  employeeDraft: null,
+  commentDraft: {},
+  confirmDeleteTaskId: null,
+  confirmDeactivateEmpId: null,
+  taskFilters: { quick:'All', status:'All', dept:'All', project:'All', employee:'All', priority:'All', level:'All' },
+  taskSort: { field:'dueDate', dir:'asc' },
+  calendar: { mode:'month', y: today0.getFullYear(), m: today0.getMonth(), day: todayISO() },
+  report: { month: today0.getMonth(), year: today0.getFullYear(), compareMode:false, cMonth:null, cYear:null, dept:'All', project:'All', selectedEmp:null },
+  settingsDraft: { newDept:'', newProject:'' },
+  toast: null
+};
+
+function currentUser(){ return DB.employees.find(e => e.id === state.currentUserId); }
+function isAdmin(){ const u = currentUser(); return !!u && u.role === 'admin'; }
+function canEditTask(t){ return isAdmin(); }
+function canUpdateProgress(t){ const u = currentUser(); return isAdmin() || (u && t.assignedTo === u.id); }
+
+let toastTimer = null;
+function showToast(msg){
+  state.toast = msg;
+  render();
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { state.toast = null; render(); }, 2600);
+}
+
+function render(){
+  const active = document.activeElement;
+  const activeId = active && active.id ? active.id : null;
+  const selStart = active && 'selectionStart' in active ? active.selectionStart : null;
+  const selEnd = active && 'selectionEnd' in active ? active.selectionEnd : null;
+  const scrollY = window.scrollY;
+  document.getElementById('app').innerHTML = renderShell();
+  if (activeId){
+    const el = document.getElementById(activeId);
+    if (el){
+      el.focus();
+      if (selStart != null && el.setSelectionRange){
+        try { el.setSelectionRange(selStart, selEnd); } catch(e){}
+      }
+    }
+  }
+  window.scrollTo(0, scrollY);
+}
+
+function setView(v){ state.view = v; state.modal = null; render(); }
+function switchUser(id){
+  state.currentUserId = id;
+  if (state.view === 'team' || state.view === 'alltasks' || state.view === 'reports' || state.view === 'settings'){
+    if (!isAdmin()) state.view = 'dashboard';
+  }
+  render();
+}
+function toggleNotif(){ state.notifOpen = !state.notifOpen; render(); }
+function onSearchInput(v){ state.search = v; render(); }
+function closeModal(){ state.modal = null; state.taskDraft = null; state.employeeDraft = null; render(); }
+
+function csvDownload(filename, headers, rows){
+  const esc = v => { const s = (v==null?'':String(v)); return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s; };
+  const lines = [headers.map(esc).join(',')].concat(rows.map(r => r.map(esc).join(',')));
+  const csv = lines.join('\r\n');
+  try {
+    const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    showToast('Exported ' + filename);
+  } catch(e){ showToast('Export failed in this environment'); }
+}
+function printReport(){ try { window.print(); } catch(e){ showToast('Use your browser\'s print shortcut (Ctrl/Cmd+P)'); } }
+
+/* ---------- alerts (smart alerts, used by topbar + dashboard) ---------- */
+function computeAlerts(scopeTasks){
+  const tISO = todayISO(), tmwISO = addDaysISO(tISO,1), weekEndISO = addDaysISO(tISO,7);
+  const dueToday = scopeTasks.filter(t => t.status!=='Completed' && t.status!=='Cancelled' && t.dueDate===tISO);
+  const dueTomorrow = scopeTasks.filter(t => t.status!=='Completed' && t.status!=='Cancelled' && t.dueDate===tmwISO);
+  const overdue = scopeTasks.filter(isOverdue);
+  const critical = scopeTasks.filter(t => t.priority==='Critical' && t.status!=='Completed' && t.status!=='Cancelled');
+  const unassigned = scopeTasks.filter(t => !t.assignedTo && t.status!=='Cancelled');
+  return { dueToday, dueTomorrow, overdue, critical, unassigned };
+}
+
+/* =====================================================================
+   8. SHELL — sidebar, topbar, routing
+   ===================================================================== */
+const NAV = [
+  {id:'dashboard', label:'Dashboard', icon:'grid', roles:['admin','member']},
+  {id:'mytasks', label:'My Tasks', icon:'check', roles:['admin','member']},
+  {id:'alltasks', label:'All Tasks', icon:'list', roles:['admin']},
+  {id:'calendar', label:'Calendar', icon:'calendar', roles:['admin','member']},
+  {id:'projects', label:'Projects', icon:'folder', roles:['admin','member']},
+  {id:'team', label:'Team', icon:'users', roles:['admin']},
+  {id:'reports', label:'Reports', icon:'chart', roles:['admin','member']},
+  {id:'settings', label:'Settings', icon:'gear', roles:['admin']}
+];
+
+function renderShell(){
+  const u = currentUser();
+  if (!u) return '<div class="empty-state">Loading…</div>';
+  const alerts = computeAlerts(isAdmin() ? DB.tasks : DB.tasks.filter(t=>t.assignedTo===u.id));
+  const notifCount = alerts.dueToday.length + alerts.overdue.length + (isAdmin()?alerts.unassigned.length:0);
+
+  return '' +
+  '<aside class="sidebar">' +
+    '<div class="brand"><div class="brand-mark">TF</div><div><div class="brand-name">Taskframe</div><div class="brand-sub">Team Operations</div></div></div>' +
+    '<nav class="nav">' +
+      NAV.filter(n => n.roles.includes(u.role)).map(n =>
+        '<div class="nav-item '+(state.view===n.id?'active':'')+'" onclick="setView(\''+n.id+'\')">' +
+          '<span class="nav-icon">'+icon(n.icon)+'</span>'+n.label+
+        '</div>'
+      ).join('') +
+    '</nav>' +
+    '<div class="sidebar-foot">' +
+      '<div class="role-switch">' +
+        '<label>View as</label>' +
+        '<select onchange="switchUser(this.value)">' +
+          DB.employees.filter(e=>e.active).map(e => '<option value="'+e.id+'" '+(e.id===u.id?'selected':'')+'>'+e.name+(e.role==='admin'?' (Admin)':'')+'</option>').join('') +
+        '</select>' +
+      '</div>' +
+    '</div>' +
+  '</aside>' +
+  '<div class="main">' +
+    renderTopbar(u, alerts, notifCount) +
+    '<div class="content">' + renderView(u) + '</div>' +
+  '</div>' +
+  (state.modal ? renderModal() : '') +
+  (state.toast ? '<div class="toast">'+state.toast+'</div>' : '');
+}
+
+function renderTopbar(u, alerts, notifCount){
+  const q = state.search.trim().toLowerCase();
+  let results = '';
+  if (q.length >= 2){
+    const scope = isAdmin() ? DB.tasks : DB.tasks.filter(t=>t.assignedTo===u.id || t.assignedBy===u.id);
+    const taskHits = scope.filter(t => (t.name+' '+t.id+' '+t.project+' '+t.department).toLowerCase().includes(q)).slice(0,5);
+    const empHits = isAdmin() ? DB.employees.filter(e => e.name.toLowerCase().includes(q)).slice(0,4) : [];
+    const projHits = DB.projects.filter(p => p.toLowerCase().includes(q)).slice(0,4);
+    if (taskHits.length || empHits.length || projHits.length){
+      results = '<div class="notif-panel" style="width:340px">' +
+        (taskHits.length ? '<div class="notif-item"><div class="card-title-sm" style="margin-bottom:6px">Tasks</div>' + taskHits.map(t=>'<div style="padding:4px 0;cursor:pointer" onclick="state.search=\'\';openTaskDetail(\''+t.id+'\')">'+t.name+' <span class="sub">'+t.id+'</span></div>').join('') + '</div>' : '') +
+        (empHits.length ? '<div class="notif-item"><div class="card-title-sm" style="margin-bottom:6px">Team</div>' + empHits.map(e=>'<div style="padding:4px 0;cursor:pointer" onclick="state.search=\'\';openEmployeeDetail(\''+e.id+'\')">'+e.name+'</div>').join('') + '</div>' : '') +
+        (projHits.length ? '<div class="notif-item"><div class="card-title-sm" style="margin-bottom:6px">Projects</div>' + projHits.map(p=>'<div style="padding:4px 0;cursor:pointer" onclick="state.search=\'\';setView(\'projects\')">'+p+'</div>').join('') + '</div>' : '') +
+      '</div>';
+    } else {
+      results = '<div class="notif-panel"><div class="notif-item muted">No matches for "'+state.search+'"</div></div>';
+    }
+  }
+  return '<div class="topbar">' +
+    '<div class="search-wrap">' +
+      '<span class="search-icon">'+icon('search',14)+'</span>' +
+      '<input id="global-search" class="field" placeholder="Search tasks, people, projects, IDs…" value="'+escAttr(state.search)+'" oninput="onSearchInput(this.value)" style="padding-left:32px" />' +
+      results +
+    '</div>' +
+    '<div class="topbar-spacer"></div>' +
+    '<div style="position:relative">' +
+      '<button class="icon-btn" onclick="toggleNotif()" title="Notifications">'+icon('bell')+(notifCount>0?'<span class="badge-dot">'+notifCount+'</span>':'')+'</button>' +
+      (state.notifOpen ? renderNotifPanel(alerts) : '') +
+    '</div>' +
+    '<div class="profile-chip">' + avatar(u,26) + '<div><div class="profile-name">'+u.name+'</div><div class="profile-role">'+(u.role==='admin'?'Admin · '+u.department:u.department)+'</div></div></div>' +
+  '</div>';
+}
+
+function renderNotifPanel(a){
+  function row(list, label, colorVar, view, iconName){
+    if (!list.length) return '';
+    return '<div class="alert-row" onclick="goToAlert(\''+view+'\')"><div class="alert-ico" style="background:var('+colorVar+'-soft);color:var('+colorVar+')">'+icon(iconName,13)+'</div><div>'+list.length+' '+label+'</div></div>';
+  }
+  const rows = row(a.overdue,'task'+(a.overdue.length===1?'':'s')+' overdue','--bad','overdue','alert') +
+    row(a.dueToday,'due today','--warn','today','clock') +
+    row(a.dueTomorrow,'due tomorrow','--info','tomorrow','calendar') +
+    row(a.critical,'critical task'+(a.critical.length===1?'':'s')+' need attention','--bad','critical','sparkle') +
+    (isAdmin() ? row(a.unassigned,'task'+(a.unassigned.length===1?'':'s')+' unassigned','--neutral-status','unassigned','inbox') : '');
+  return '<div class="notif-panel">' + (rows || '<div class="notif-item muted">All clear — nothing needs attention.</div>') + '</div>';
+}
+function goToAlert(kind){
+  state.notifOpen = false;
+  state.view = isAdmin() ? 'alltasks' : 'mytasks';
+  state.taskFilters = { quick:'All', status:'All', dept:'All', project:'All', employee:'All', priority:'All', level:'All' };
+  if (kind==='overdue') state.taskFilters.quick = 'Overdue';
+  if (kind==='today') state.taskFilters.quick = 'Today';
+  if (kind==='critical') state.taskFilters.quick = 'Critical';
+  if (kind==='tomorrow') state.taskFilters.quick = 'Tomorrow';
+  if (kind==='unassigned') state.taskFilters.employee = 'Unassigned';
+  render();
+}
+function escAttr(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+function escHtml(s){ return escAttr(s); }
+
+function renderView(u){
+  switch(state.view){
+    case 'dashboard': return isAdmin() ? viewDashboardAdmin() : viewDashboardMember(u);
+    case 'mytasks': return viewTaskList({ scope:'my' });
+    case 'alltasks': return isAdmin() ? viewTaskList({ scope:'all' }) : viewDashboardMember(u);
+    case 'calendar': return viewCalendar(u);
+    case 'projects': return viewProjects();
+    case 'team': return isAdmin() ? viewTeam() : viewDashboardMember(u);
+    case 'reports': return viewReports(u);
+    case 'settings': return isAdmin() ? viewSettings() : viewDashboardMember(u);
+    default: return '<div class="empty-state">Not found</div>';
+  }
+}
+
+/* =====================================================================
+   9. SHARED SMALL COMPONENTS
+   ===================================================================== */
+function kpiTile(label, value, foot, cls){
+  return '<div class="card kpi"><div class="kpi-label">'+label+'</div><div class="kpi-value num '+(cls||'')+'">'+value+'</div>'+(foot?'<div class="kpi-foot">'+foot+'</div>':'')+'</div>';
+}
+function scoreRing(score, size){
+  size = size || 64;
+  const r = (size/2) - 5, c = 2*Math.PI*r;
+  const pct = Math.max(0, Math.min(100, score))/100;
+  const color = score>=80 ? 'var(--good)' : score>=60 ? 'var(--accent)' : score>=40 ? 'var(--warn)' : 'var(--bad)';
+  return '<div class="score-ring" style="width:'+size+'px;height:'+size+'px">' +
+    '<svg width="'+size+'" height="'+size+'"><circle cx="'+size/2+'" cy="'+size/2+'" r="'+r+'" fill="none" stroke="var(--border)" stroke-width="5"/>' +
+    '<circle cx="'+size/2+'" cy="'+size/2+'" r="'+r+'" fill="none" stroke="'+color+'" stroke-width="5" stroke-linecap="round" stroke-dasharray="'+c+'" stroke-dashoffset="'+(c*(1-pct))+'"/></svg>' +
+    '<div class="val">'+Math.round(score)+'</div></div>';
+}
+function breakdownRow(label, value, weightLabel){
+  const pct = Math.max(0,Math.min(100,value));
+  const color = pct>=80?'var(--good)':pct>=60?'var(--accent)':pct>=40?'var(--warn)':'var(--bad)';
+  return '<div class="breakdown-row"><span class="lbl">'+label+(weightLabel?' <span class="muted">('+weightLabel+')</span>':'')+'</span>' +
+    '<span class="bar-track"><span class="bar-fill" style="width:'+pct+'%;background:'+color+'"></span></span>' +
+    '<span class="v num">'+Math.round(value)+'%</span></div>';
+}
+function efficiencyBreakdownCard(stats){
+  return '<div class="stack">' +
+    breakdownRow('Completion Rate', stats.completionRate, '30%') +
+    breakdownRow('On-Time Completion', stats.onTimeRate, '30%') +
+    breakdownRow('Task Difficulty', stats.difficultyScore, '20%') +
+    breakdownRow('Deadline Discipline', stats.deadlineDiscipline, '10%') +
+    breakdownRow('Consistency', stats.consistency, '10%') +
+  '</div>';
+}
+function employeeCard(emp, opts){
+  opts = opts || {};
+  const now = todayDate();
+  const list = tasksForEmployeeInMonth(emp.id, now.getFullYear(), now.getMonth());
+  const stats = computeStats(list);
+  const active = DB.tasks.filter(t => t.assignedTo===emp.id && t.status!=='Completed' && t.status!=='Cancelled');
+  return '<div class="card card-pad" style="cursor:pointer" onclick="openEmployeeDetail(\''+emp.id+'\')">' +
+    '<div class="flex gap-10" style="margin-bottom:10px">' + avatar(emp,38) +
+      '<div style="flex:1;min-width:0"><div style="font-weight:800;font-size:13.5px">'+emp.name+'</div><div class="sub">'+emp.department+'</div></div>' +
+      scoreRing(stats.efficiency, 46) +
+    '</div>' +
+    '<div class="grid" style="grid-template-columns:repeat(4,1fr);gap:8px;text-align:center;margin-bottom:8px">' +
+      '<div><div style="font-weight:800" class="num">'+stats.assigned+'</div><div class="sub">Assigned</div></div>' +
+      '<div><div style="font-weight:800;color:var(--good)" class="num">'+stats.completed+'</div><div class="sub">Completed</div></div>' +
+      '<div><div style="font-weight:800" class="num">'+stats.pending+'</div><div class="sub">Pending</div></div>' +
+      '<div><div style="font-weight:800;color:'+(stats.overdue>0?'var(--bad)':'var(--ink)')+'" class="num">'+stats.overdue+'</div><div class="sub">Overdue</div></div>' +
+    '</div>' +
+    '<div class="divider" style="margin:8px 0"></div>' +
+    '<div class="flex-between" style="font-size:11.5px"><span class="muted">Completion '+Math.round(stats.completionRate)+'% · On-time '+Math.round(stats.onTimeRate)+'%</span><span class="muted">Workload: '+active.length+' active</span></div>' +
+  '</div>';
+}
+
+/* =====================================================================
+   10. DASHBOARD — ADMIN
+   ===================================================================== */
+function viewDashboardAdmin(){
+  const cs = companyStats(DB.tasks);
+  const alerts = computeAlerts(DB.tasks);
+  const members = DB.employees.filter(e => e.role==='member' && e.active);
+  const now = todayDate();
+  const lb = leaderboard(now.getFullYear(), now.getMonth());
+  const best = lb[0], needsAttention = lb.slice().sort((a,b)=>a.stats.efficiency-b.stats.efficiency)[0];
+  const highestOverdue = lb.slice().sort((a,b)=>b.stats.overdue-a.stats.overdue)[0];
+  const highestCompletion = lb.slice().sort((a,b)=>b.stats.completionRate-a.stats.completionRate)[0];
+  const highestOnTime = lb.slice().sort((a,b)=>b.stats.onTimeRate-a.stats.onTimeRate)[0];
+
+  const workload = members.map(e => ({ emp:e, count: DB.tasks.filter(t=>t.assignedTo===e.id && t.status!=='Completed' && t.status!=='Cancelled').length }));
+  const maxLoad = Math.max(1, ...workload.map(w=>w.count));
+
+  const priorities = DB.tasks.filter(t => t.status!=='Completed' && t.status!=='Cancelled' && (t.dueDate===todayISO() || t.priority==='Critical') && !isOverdue(t))
+    .concat(alerts.overdue).filter((t,i,arr)=>arr.indexOf(t)===i)
+    .sort((a,b)=> a.dueDate<b.dueDate?-1:1).slice(0,8);
+
+  const upcoming = DB.tasks.filter(t => t.status!=='Completed' && t.status!=='Cancelled' && t.dueDate>=todayISO() && t.dueDate<=addDaysISO(todayISO(),7))
+    .sort((a,b)=> a.dueDate<b.dueDate?-1:1).slice(0,8);
+
+  return '' +
+  '<div class="page-head"><div><div class="page-title">Team Task Management</div><div class="page-sub">Today: '+fmtDate(todayISO())+'</div></div>' +
+    '<div class="page-actions"><button class="btn btn-primary" onclick="openCreateTask()">'+icon('plus',14)+' Create Task</button></div>' +
+  '</div>' +
+
+  (alerts.dueToday.length+alerts.overdue.length+alerts.dueTomorrow.length+alerts.critical.length+alerts.unassigned.length > 0 ?
+  '<div class="card card-pad" style="margin-bottom:16px"><div class="card-title-sm" style="margin-bottom:8px">Smart Alerts</div><div class="flex gap-8" style="flex-wrap:wrap">' +
+    (alerts.overdue.length? '<span class="chip-filter" style="color:var(--bad);border-color:var(--bad-soft);background:var(--bad-soft)" onclick="goToAlert(\'overdue\')">'+alerts.overdue.length+' task'+(alerts.overdue.length===1?'':'s')+' overdue</span>':'') +
+    (alerts.dueToday.length? '<span class="chip-filter" style="color:var(--warn);border-color:var(--warn-soft);background:var(--warn-soft)" onclick="goToAlert(\'today\')">'+alerts.dueToday.length+' due today</span>':'') +
+    (alerts.dueTomorrow.length? '<span class="chip-filter" onclick="goToAlert(\'tomorrow\')">'+alerts.dueTomorrow.length+' due tomorrow</span>':'') +
+    (alerts.critical.length? '<span class="chip-filter" style="color:var(--bad);border-color:var(--bad-soft);background:var(--bad-soft)" onclick="goToAlert(\'critical\')">'+alerts.critical.length+' critical task'+(alerts.critical.length===1?'':'s')+' need attention</span>':'') +
+    (alerts.unassigned.length? '<span class="chip-filter" onclick="goToAlert(\'unassigned\')">'+alerts.unassigned.length+' unassigned</span>':'') +
+  '</div></div>' : '') +
+
+  '<div class="grid grid-kpi" style="margin-bottom:16px">' +
+    kpiTile('Total Tasks', cs.total) +
+    kpiTile('Completed', cs.completed, Math.round(cs.completionRate)+'% completion', 'good') +
+    kpiTile('In Progress', cs.inProgress) +
+    kpiTile('Overdue', cs.overdue, cs.overdue>0?'needs attention':'on track', cs.overdue>0?'bad':'') +
+    kpiTile('Efficiency', Math.round(cs.teamEfficiency), 'On-time '+Math.round(cs.onTimeRate)+'% · Avg '+cs.avgCompletionDays.toFixed(1)+'d') +
+  '</div>' +
+
+  '<div class="grid grid-2" style="margin-bottom:16px">' +
+    '<div class="card"><div class="card-head"><span class="card-title">Today\'s Priorities</span><span class="sub">'+priorities.length+' items</span></div><div class="card-pad">' +
+      (priorities.length ? priorities.map(t => priorityRow(t)).join('') : '<div class="empty-state">Nothing urgent today.</div>') +
+    '</div></div>' +
+    '<div class="card"><div class="card-head"><span class="card-title">Team Workload</span><span class="sub">active tasks</span></div><div class="card-pad">' +
+      workload.map(w => '<div class="bar-row"><span style="width:88px;flex:0 0 auto;font-size:12px;font-weight:600" class="ellipsis">'+w.emp.name.split(' ')[0]+'</span>' +
+        '<span class="bar-track"><span class="bar-fill" style="width:'+(w.count/maxLoad*100)+'%"></span></span>' +
+        '<span style="width:18px;text-align:right;font-weight:800;font-size:12px" class="num">'+w.count+'</span></div>').join('') +
+      '<div class="sub" style="margin-top:8px">Flags employees carrying disproportionately more or fewer active tasks than the team average.</div>' +
+    '</div></div>' +
+  '</div>' +
+
+  '<div class="card-head" style="padding:0;margin-bottom:10px"><span class="card-title" style="font-size:15px">Employee Performance</span><span class="sub">This month · click a card for details</span></div>' +
+  '<div class="grid grid-emp" style="margin-bottom:16px">' + members.map(e => employeeCard(e)).join('') + '</div>' +
+
+  '<div class="grid grid-2" style="margin-bottom:16px">' +
+    '<div class="card"><div class="card-head"><span class="card-title">Upcoming Deadlines</span><span class="sub">next 7 days</span></div><div class="card-pad">' +
+      (upcoming.length ? upcoming.map(t => priorityRow(t)).join('') : '<div class="empty-state">No deadlines in the next 7 days.</div>') +
+    '</div></div>' +
+    '<div class="card"><div class="card-head"><span class="card-title">Performance Highlights</span></div><div class="card-pad stack">' +
+      highlightRow('Best Performing', best) + highlightRow('Needs Attention', needsAttention, true) +
+      highlightRow('Highest Overdue Count', highestOverdue, true, 'overdue') +
+      highlightRow('Highest Completion Rate', highestCompletion, false, 'completionRate') +
+      highlightRow('Highest On-Time Rate', highestOnTime, false, 'onTimeRate') +
+    '</div></div>' +
+  '</div>' +
+
+  '<div class="card"><div class="card-head"><span class="card-title">Monthly Performance — '+monthLabel(now.getFullYear(),now.getMonth())+'</span><button class="btn btn-sm btn-ghost" onclick="setView(\'reports\')">Full report →</button></div><div class="card-pad">' +
+    monthlyPreviewTable(lb.slice(0,5)) +
+  '</div></div>';
+}
+function priorityRow(t){
+  const emp = DB.employees.find(e=>e.id===t.assignedTo);
+  return '<div class="flex gap-10" style="padding:7px 0;border-bottom:1px solid var(--border);cursor:pointer" onclick="openTaskDetail(\''+t.id+'\')">' +
+    (emp?avatar(emp,24):'<span class="avatar" style="width:24px;height:24px;background:var(--neutral-status)">—</span>') +
+    '<div style="flex:1;min-width:0"><div style="font-weight:700;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+t.name+'</div><div class="sub">'+(emp?emp.name:'Unassigned')+' · '+t.project+'</div></div>' +
+    priorityPill(t.priority) +
+    '<span class="sub" style="width:80px;text-align:right">'+daysRemainingLabel(t)+'</span>' +
+  '</div>';
+}
+function highlightRow(label, entry, warnStyle, metric){
+  if (!entry) return '<div class="flex-between"><span class="sub">'+label+'</span><span class="muted">—</span></div>';
+  let val = Math.round(entry.stats.efficiency)+' pts';
+  if (metric==='overdue') val = entry.stats.overdue+' overdue';
+  if (metric==='completionRate') val = Math.round(entry.stats.completionRate)+'%';
+  if (metric==='onTimeRate') val = Math.round(entry.stats.onTimeRate)+'%';
+  return '<div class="flex-between" style="cursor:pointer" onclick="openEmployeeDetail(\''+entry.employee.id+'\')">' +
+    '<span class="flex gap-8">'+avatar(entry.employee,22)+'<span style="font-size:12.5px;font-weight:600">'+label+'</span></span>' +
+    '<span style="font-weight:800;font-size:12.5px;color:'+(warnStyle?'var(--bad)':'var(--good)')+'">'+entry.employee.name.split(' ')[0]+' · '+val+'</span>' +
+  '</div>';
+}
+function monthlyPreviewTable(rows){
+  if (!rows.length) return '<div class="empty-state">No task activity yet this month.</div>';
+  return '<div class="table-wrap"><table><thead><tr><th>Rank</th><th>Employee</th><th>Tasks</th><th>Completed</th><th>On-Time %</th><th>Efficiency</th></tr></thead><tbody>' +
+    rows.map((r,i) => '<tr class="row"><td>'+rankBadge(i+1)+'</td><td class="flex gap-8">'+avatar(r.employee,22)+r.employee.name+'</td>' +
+      '<td class="num">'+r.stats.assigned+'</td><td class="num">'+r.stats.completed+'</td><td class="num">'+Math.round(r.stats.onTimeRate)+'%</td>' +
+      '<td class="num" style="font-weight:800">'+Math.round(r.stats.efficiency)+'</td></tr>').join('') +
+  '</tbody></table></div>';
+}
+function rankBadge(n){ return '<span class="rank-badge '+(n<=1?'top':'')+'">'+n+'</span>'; }
+
+/* =====================================================================
+   11. DASHBOARD — TEAM MEMBER (personal)
+   ===================================================================== */
+function viewDashboardMember(u){
+  const now = todayDate();
+  const myTasks = DB.tasks.filter(t => t.assignedTo===u.id);
+  const monthTasks = tasksForEmployeeInMonth(u.id, now.getFullYear(), now.getMonth());
+  const stats = computeStats(monthTasks);
+  const alerts = computeAlerts(myTasks);
+  const todayTasks = myTasks.filter(t => t.status!=='Completed' && t.status!=='Cancelled' && (t.dueDate<=todayISO()) ).sort((a,b)=>a.dueDate<b.dueDate?-1:1).slice(0,6);
+  const upcoming = myTasks.filter(t => t.status!=='Completed' && t.status!=='Cancelled' && t.dueDate>todayISO() && t.dueDate<=addDaysISO(todayISO(),7)).sort((a,b)=>a.dueDate<b.dueDate?-1:1);
+
+  return '' +
+  '<div class="page-head"><div><div class="page-title">Welcome back, '+u.name.split(' ')[0]+'</div><div class="page-sub">Today: '+fmtDate(todayISO())+' · '+u.department+'</div></div>' +
+    '<div class="page-actions"><button class="btn" onclick="setView(\'mytasks\')">'+icon('check',14)+' Go to My Tasks</button></div>' +
+  '</div>' +
+
+  (alerts.dueToday.length+alerts.overdue.length > 0 ?
+  '<div class="card card-pad" style="margin-bottom:16px"><div class="flex gap-8" style="flex-wrap:wrap">' +
+    (alerts.overdue.length? '<span class="chip-filter" style="color:var(--bad);border-color:var(--bad-soft);background:var(--bad-soft)" onclick="goToAlert(\'overdue\')">'+alerts.overdue.length+' of your tasks '+(alerts.overdue.length===1?'is':'are')+' overdue</span>':'') +
+    (alerts.dueToday.length? '<span class="chip-filter" style="color:var(--warn);border-color:var(--warn-soft);background:var(--warn-soft)" onclick="goToAlert(\'today\')">'+alerts.dueToday.length+' due today</span>':'') +
+  '</div></div>' : '') +
+
+  '<div class="grid grid-kpi" style="margin-bottom:16px">' +
+    kpiTile('Assigned (month)', stats.assigned) +
+    kpiTile('Completed', stats.completed, Math.round(stats.completionRate)+'% completion', 'good') +
+    kpiTile('Pending', stats.pending) +
+    kpiTile('Overdue', stats.overdue, '', stats.overdue>0?'bad':'') +
+    kpiTile('Efficiency', Math.round(stats.efficiency)) +
+  '</div>' +
+
+  '<div class="grid grid-2" style="margin-bottom:16px">' +
+    '<div class="card"><div class="card-head"><span class="card-title">Your Tasks — Due Today & Overdue</span></div><div class="card-pad">' +
+      (todayTasks.length ? todayTasks.map(t=>priorityRow(t)).join('') : '<div class="empty-state">Nothing due today. Nice work staying ahead.</div>') +
+    '</div></div>' +
+    '<div class="card card-pad">' +
+      '<div class="flex gap-14" style="margin-bottom:6px">'+scoreRing(stats.efficiency,72)+'<div><div class="card-title">Your Efficiency Score</div><div class="sub">'+monthLabel(now.getFullYear(),now.getMonth())+' · transparent breakdown below</div></div></div>' +
+      efficiencyBreakdownCard(stats) +
+      '<button class="btn btn-sm" style="margin-top:8px" onclick="setView(\'reports\')">View full monthly report →</button>' +
+    '</div>' +
+  '</div>' +
+
+  '<div class="card"><div class="card-head"><span class="card-title">Upcoming Deadlines</span><span class="sub">next 7 days</span></div><div class="card-pad">' +
+    (upcoming.length ? upcoming.map(t=>priorityRow(t)).join('') : '<div class="empty-state">No upcoming deadlines in the next 7 days.</div>') +
+  '</div></div>';
+}
+
+/* =====================================================================
+   12. TASK LIST — shared by My Tasks / All Tasks
+   ===================================================================== */
+const QUICK_FILTERS = ['All','Today','This Week','Overdue','High Priority','Critical','Completed'];
+const PRIORITY_RANK = {Critical:0, High:1, Medium:2, Low:3};
+const STATUS_RANK = {'Not Started':0,'In Progress':1,'On Hold':2,'Completed':3,'Cancelled':4};
+
+function setQuickFilter(v){ state.taskFilters.quick = v; render(); }
+function setTaskFilter(key, v){ state.taskFilters[key] = v; render(); }
+function setSort(field){
+  if (state.taskSort.field === field) state.taskSort.dir = state.taskSort.dir==='asc'?'desc':'asc';
+  else { state.taskSort.field = field; state.taskSort.dir = 'asc'; }
+  render();
+}
+function resetTaskFilters(){ state.taskFilters = { quick:'All', status:'All', dept:'All', project:'All', employee:'All', priority:'All', level:'All' }; state.search=''; render(); }
+
+function filterTasks(base, scope){
+  const f = state.taskFilters, tISO = todayISO();
+  let list = base.slice();
+  if (f.quick === 'Today') list = list.filter(t => t.dueDate===tISO && t.status!=='Cancelled');
+  else if (f.quick === 'This Week') list = list.filter(t => t.dueDate>=tISO && t.dueDate<=addDaysISO(tISO,7) && t.status!=='Cancelled');
+  else if (f.quick === 'Overdue') list = list.filter(isOverdue);
+  else if (f.quick === 'High Priority') list = list.filter(t => t.priority==='High');
+  else if (f.quick === 'Critical') list = list.filter(t => t.priority==='Critical');
+  else if (f.quick === 'Completed') list = list.filter(t => t.status==='Completed');
+  if (f.status !== 'All') list = list.filter(t => t.status===f.status);
+  if (f.dept !== 'All') list = list.filter(t => t.department===f.dept);
+  if (f.project !== 'All') list = list.filter(t => t.project===f.project);
+  if (f.priority !== 'All') list = list.filter(t => t.priority===f.priority);
+  if (f.level !== 'All') list = list.filter(t => t.level===Number(f.level));
+  if (scope === 'all'){
+    if (f.employee === 'Unassigned') list = list.filter(t => !t.assignedTo);
+    else if (f.employee !== 'All') list = list.filter(t => t.assignedTo===f.employee);
+  }
+  const q = state.search.trim().toLowerCase();
+  if (q){
+    list = list.filter(t => {
+      const emp = DB.employees.find(e=>e.id===t.assignedTo);
+      return (t.name+' '+t.id+' '+t.project+' '+t.department+' '+(emp?emp.name:'')).toLowerCase().includes(q);
+    });
+  }
+  const {field, dir} = state.taskSort;
+  list.sort((a,b) => {
+    let av, bv;
+    if (field==='priority'){ av=PRIORITY_RANK[a.priority]; bv=PRIORITY_RANK[b.priority]; }
+    else if (field==='level'){ av=a.level; bv=b.level; }
+    else if (field==='status'){ av=STATUS_RANK[a.status]; bv=STATUS_RANK[b.status]; }
+    else if (field==='project'){ av=a.project; bv=b.project; }
+    else { av=a.dueDate; bv=b.dueDate; }
+    if (av<bv) return dir==='asc'?-1:1;
+    if (av>bv) return dir==='asc'?1:-1;
+    return 0;
+  });
+  return list;
+}
+
+function sortIndicator(field){ return state.taskSort.field===field ? (state.taskSort.dir==='asc'?' '+icon('arrowup',9):' '+icon('arrowdown',9)) : ''; }
+
+function viewTaskList(opts){
+  const u = currentUser();
+  const scope = opts.scope;
+  const base = scope==='my' ? DB.tasks.filter(t => t.assignedTo===u.id) : DB.tasks;
+  const filtered = filterTasks(base, scope);
+  const f = state.taskFilters;
+
+  return '' +
+  '<div class="page-head"><div><div class="page-title">'+(scope==='my'?'My Tasks':'All Tasks')+'</div><div class="page-sub">'+filtered.length+' of '+base.length+' tasks'+(state.search?' · matching "'+escHtml(state.search)+'"':'')+'</div></div>' +
+    '<div class="page-actions">' + (isAdmin() ? '<button class="btn btn-primary" onclick="openCreateTask()">'+icon('plus',14)+' Create Task</button>' : '') +
+      '<button class="btn btn-sm btn-ghost" onclick="exportTaskCsv()">'+icon('download',13)+' Export CSV</button>' +
+    '</div>' +
+  '</div>' +
+
+  '<div class="filter-bar">' +
+    QUICK_FILTERS.map(qf => '<span class="chip-filter '+(f.quick===qf?'active':'')+'" onclick="setQuickFilter(\''+qf+'\')">'+qf+'</span>').join('') +
+  '</div>' +
+  '<div class="filter-bar">' +
+    selectFilter('status', ['All'].concat(STATUSES), f.status, 'Status') +
+    selectFilter('dept', ['All'].concat(DB.departments), f.dept, 'Department') +
+    selectFilter('project', ['All'].concat(DB.projects), f.project, 'Project') +
+    (scope==='all' ? selectFilter('employee', ['All','Unassigned'].concat(DB.employees.filter(e=>e.role==='member').map(e=>e.id)), f.employee, 'Employee', empLabelMap()) : '') +
+    selectFilter('priority', ['All'].concat(PRIORITIES), f.priority, 'Priority') +
+    selectFilter('level', ['All','1','2','3','4'], f.level, 'Level', {'1':'Level 1','2':'Level 2','3':'Level 3','4':'Level 4'}) +
+    '<button class="btn btn-sm btn-ghost" onclick="resetTaskFilters()">'+icon('x',12)+' Clear</button>' +
+  '</div>' +
+
+  '<div class="card"><div class="table-wrap"><table><thead><tr>' +
+    '<th>Task</th>' +
+    (scope==='all' ? '<th>Assigned To</th>' : '') +
+    '<th class="sorted" onclick="setSort(\'project\')">Project'+sortIndicator('project')+'</th>' +
+    '<th onclick="setSort(\'priority\')">Priority'+sortIndicator('priority')+'</th>' +
+    '<th onclick="setSort(\'level\')">Level'+sortIndicator('level')+'</th>' +
+    '<th onclick="setSort(\'dueDate\')">Due Date'+sortIndicator('dueDate')+'</th>' +
+    '<th onclick="setSort(\'status\')">Status'+sortIndicator('status')+'</th>' +
+    '<th>Days Remaining</th><th>Completion</th><th>Action</th>' +
+  '</tr></thead><tbody>' +
+    (filtered.length ? filtered.map(t => taskRow(t, scope)).join('') : '') +
+  '</tbody></table></div>' +
+  (filtered.length ? '' : '<div class="empty-state">No tasks match the current filters.</div>') +
+  '</div>';
+}
+function empLabelMap(){ const m={}; DB.employees.forEach(e=>m[e.id]=e.name); return m; }
+function selectFilter(key, options, current, label, labelMap){
+  return '<select class="field" onchange="setTaskFilter(\''+key+'\', this.value)" title="'+label+'">' +
+    options.map(o => '<option value="'+o+'" '+(o===current?'selected':'')+'>'+(o==='All'?'All '+label+'s':(labelMap&&labelMap[o]?labelMap[o]:o))+'</option>').join('') +
+  '</select>';
+}
+function taskRow(t, scope){
+  const emp = DB.employees.find(e=>e.id===t.assignedTo);
+  const overdue = isOverdue(t);
+  return '<tr class="row">' +
+    '<td class="task-name-cell" onclick="openTaskDetail(\''+t.id+'\')">'+t.name+'<div class="sub mono">'+t.id+'</div></td>' +
+    (scope==='all' ? '<td>'+(emp?('<span class="flex gap-6">'+avatar(emp,20)+emp.name+'</span>'):'<span class="muted">Unassigned</span>')+'</td>' : '') +
+    '<td>'+t.project+'</td>' +
+    '<td>'+priorityPill(t.priority)+'</td>' +
+    '<td>'+levelBars(t.level)+'</td>' +
+    '<td class="num">'+fmtDateShort(t.dueDate)+'</td>' +
+    '<td>'+statusPill(t)+'</td>' +
+    '<td class="num" style="color:'+(overdue?'var(--bad)':'inherit')+';font-weight:'+(overdue?'700':'400')+'">'+daysRemainingLabel(t)+'</td>' +
+    '<td><span class="flex gap-6"><span class="progress-track"><span class="progress-fill" style="width:'+t.progress+'%"></span></span><span class="sub num">'+t.progress+'%</span></span></td>' +
+    '<td><div class="flex gap-6">' +
+      '<button class="btn btn-sm btn-ghost" onclick="openTaskDetail(\''+t.id+'\')">Open</button>' +
+      (isAdmin() ? deleteButtonInline(t.id) : '') +
+    '</div></td>' +
+  '</tr>';
+}
+function deleteButtonInline(taskId){
+  if (state.confirmDeleteTaskId === taskId){
+    return '<button class="btn btn-sm btn-danger" onclick="confirmDeleteTask(\''+taskId+'\')">Confirm?</button>' +
+      '<button class="btn btn-sm btn-ghost" onclick="cancelDeleteTask()">'+icon('x',11)+'</button>';
+  }
+  return '<button class="btn btn-sm btn-ghost" title="Delete" onclick="askDeleteTask(\''+taskId+'\')">'+icon('trash',12)+'</button>';
+}
+function askDeleteTask(id){ state.confirmDeleteTaskId = id; render(); }
+function cancelDeleteTask(){ state.confirmDeleteTaskId = null; render(); }
+function confirmDeleteTask(id){
+  DB.deleteTask(id);
+  state.confirmDeleteTaskId = null;
+  if (state.modal && state.modal.type==='taskDetail' && state.modal.taskId===id) state.modal = null;
+  showToast('Task deleted');
+}
+function exportTaskCsv(){
+  const scope = state.view==='mytasks' ? 'my' : 'all';
+  const u = currentUser();
+  const base = scope==='my' ? DB.tasks.filter(t=>t.assignedTo===u.id) : DB.tasks;
+  const list = filterTasks(base, scope);
+  const headers = ['Task ID','Task','Employee','Department','Project','Level','Priority','Status','Created','Due Date','Completed Date','Days Late/Early','Progress %'];
+  const rows = list.map(t => {
+    const emp = DB.employees.find(e=>e.id===t.assignedTo);
+    let lateEarly = '';
+    if (t.completionDate){ const diff = daysBetween(t.dueDate, t.completionDate.slice(0,10)); lateEarly = diff>0?(diff+'d late'):diff<0?((-diff)+'d early'):'On time'; }
+    return [t.id, t.name, emp?emp.name:'Unassigned', t.department, t.project, 'L'+t.level, t.priority, t.status, t.createdDate, t.dueDate, t.completionDate?t.completionDate.slice(0,10):'', lateEarly, t.progress];
+  });
+  csvDownload('tasks_export_'+todayISO()+'.csv', headers, rows);
+}
+
+/* =====================================================================
+   13. CALENDAR
+   ===================================================================== */
+function calNav(dir){
+  const c = state.calendar;
+  if (c.mode === 'month'){ const np = dir<0?prevMonth(c.y,c.m):nextMonth(c.y,c.m); c.y=np.y; c.m=np.m; }
+  else if (c.mode === 'week') c.day = addDaysISO(c.day, dir*7);
+  else c.day = addDaysISO(c.day, dir);
+  render();
+}
+function calToday(){ state.calendar.y = today0.getFullYear(); state.calendar.m = today0.getMonth(); state.calendar.day = todayISO(); render(); }
+function calSetMode(mode){ state.calendar.mode = mode; render(); }
+
+function calTaskChip(t, kind){
+  const overdue = isOverdue(t);
+  let bg = 'var(--accent-soft)', color = 'var(--accent-strong)';
+  if (kind === 'start'){ bg='var(--surface-2)'; color='var(--ink-soft)'; }
+  else if (overdue){ bg='var(--bad-soft)'; color='var(--bad)'; }
+  else if (t.priority==='Critical'){ bg='var(--bad-soft)'; color='var(--bad)'; }
+  else if (t.priority==='High'){ bg='var(--warn-soft)'; color='var(--warn)'; }
+  return '<div class="cal-task" style="background:'+bg+';color:'+color+'" onclick="openTaskDetail(\''+t.id+'\')" title="'+escAttr(t.name)+'">'+(kind==='start'?'▸ ':'')+escHtml(t.name)+'</div>';
+}
+function calendarMonthGrid(y, m, scope){
+  const first = new Date(y, m, 1);
+  const startOffset = first.getDay();
+  const cellsStart = new Date(y, m, 1 - startOffset);
+  const dow = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  let html = '<div class="cal-wrap"><div class="cal-grid">' + dow.map(dname => '<div class="cal-dow">'+dname+'</div>').join('');
+  for (let i=0;i<42;i++){
+    const cellDate = new Date(cellsStart); cellDate.setDate(cellsStart.getDate()+i);
+    const iso = toISO(cellDate);
+    const inMonth = cellDate.getMonth() === m;
+    const isToday = iso === todayISO();
+    const dueTasks = scope.filter(t => t.dueDate===iso && t.status!=='Cancelled');
+    const startTasks = scope.filter(t => t.startDate===iso && t.startDate!==t.dueDate && t.status!=='Cancelled');
+    html += '<div class="cal-cell '+(inMonth?'':'muted-cell')+' '+(isToday?'today':'')+'">' +
+      '<div class="cal-daynum">'+cellDate.getDate()+'</div>' +
+      dueTasks.slice(0,3).map(t => calTaskChip(t,'due')).join('') +
+      (dueTasks.length>3 ? '<div class="sub" style="margin-top:2px">+'+(dueTasks.length-3)+' more</div>' : '') +
+      startTasks.slice(0,1).map(t => calTaskChip(t,'start')).join('') +
+    '</div>';
+  }
+  html += '</div></div>';
+  return html;
+}
+function calendarWeekAgenda(startDate, scope){
+  let html = '<div class="cal-wrap"><div class="grid" style="grid-template-columns:repeat(7,minmax(150px,1fr));min-width:840px">';
+  for (let i=0;i<7;i++){
+    const dt = new Date(startDate); dt.setDate(startDate.getDate()+i);
+    const iso = toISO(dt);
+    const isToday = iso === todayISO();
+    const dayTasks = scope.filter(t => (t.dueDate===iso || t.startDate===iso) && t.status!=='Cancelled');
+    html += '<div class="card card-pad" style="min-height:150px;min-width:0;overflow:hidden;'+(isToday?'border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)':'')+'">' +
+      '<div style="font-weight:800;font-size:12px;margin-bottom:6px">'+dt.toLocaleDateString('en-US',{weekday:'short'})+' '+dt.getDate()+'</div>' +
+      (dayTasks.length ? dayTasks.map(t => calTaskChip(t, t.dueDate===iso?'due':'start')).join('') : '<div class="sub">—</div>') +
+    '</div>';
+  }
+  html += '</div></div>';
+  return html;
+}
+function calendarDayAgenda(iso, scope){
+  const dayTasks = scope.filter(t => (t.dueDate===iso || t.startDate===iso) && t.status!=='Cancelled');
+  if (!dayTasks.length) return '<div class="empty-state">No tasks scheduled for this day.</div>';
+  return '<div class="table-wrap"><table><thead><tr><th>Task</th><th>Employee</th><th>Project</th><th>Priority</th><th>Level</th><th>Type</th><th>Status</th></tr></thead><tbody>' +
+    dayTasks.map(t => {
+      const emp = DB.employees.find(e=>e.id===t.assignedTo);
+      const type = (t.dueDate===iso?'Due':'') + (t.startDate===iso ? (t.dueDate===iso?' / Start':'Start') : '');
+      return '<tr class="row"><td class="task-name-cell" onclick="openTaskDetail(\''+t.id+'\')">'+t.name+'</td><td>'+(emp?emp.name:'<span class="muted">Unassigned</span>')+'</td><td>'+t.project+'</td><td>'+priorityPill(t.priority)+'</td><td>'+levelBars(t.level)+'</td><td class="sub">'+type+'</td><td>'+statusPill(t)+'</td></tr>';
+    }).join('') +
+  '</tbody></table></div>';
+}
+function viewCalendar(u){
+  const c = state.calendar;
+  const scope = isAdmin() ? DB.tasks : DB.tasks.filter(t => t.assignedTo===u.id);
+  let label, body;
+  if (c.mode === 'month'){ label = monthLabel(c.y,c.m); body = calendarMonthGrid(c.y,c.m,scope); }
+  else if (c.mode === 'week'){ const start = startOfWeek(parseISO(c.day)); label = fmtDateShort(toISO(start))+' – '+fmtDateShort(addDaysISO(toISO(start),6))+', '+start.getFullYear(); body = calendarWeekAgenda(start,scope); }
+  else { label = fmtDate(c.day); body = calendarDayAgenda(c.day, scope); }
+
+  return '<div class="page-head"><div><div class="page-title">Calendar</div><div class="page-sub">Tasks placed by start and due date</div></div>' +
+    '<div class="page-actions">' +
+      ['month','week','day'].map(mo => '<button class="btn btn-sm '+(c.mode===mo?'btn-primary':'')+'" onclick="calSetMode(\''+mo+'\')">'+mo.charAt(0).toUpperCase()+mo.slice(1)+'</button>').join('') +
+    '</div></div>' +
+    '<div class="flex-between" style="margin-bottom:12px;flex-wrap:wrap;gap:10px">' +
+      '<div class="flex gap-8"><button class="btn btn-sm btn-ghost" onclick="calNav(-1)">'+icon('chevronleft',13)+'</button><button class="btn btn-sm btn-ghost" onclick="calToday()">Today</button><button class="btn btn-sm btn-ghost" onclick="calNav(1)">'+icon('chevronright',13)+'</button></div>' +
+      '<div style="font-weight:800;font-size:14.5px">'+label+'</div>' +
+      '<div class="flex gap-8"><span class="pill pill-critical">Critical / Overdue</span><span class="pill pill-high">High Priority</span></div>' +
+    '</div>' +
+    '<div class="card card-pad">'+body+'</div>';
+}
+
+/* =====================================================================
+   14. PROJECTS
+   ===================================================================== */
+function openProjectTasks(p){
+  const target = isAdmin() ? 'alltasks' : 'mytasks';
+  state.view = target;
+  state.taskFilters = { quick:'All', status:'All', dept:'All', project:p, employee:'All', priority:'All', level:'All' };
+  render();
+}
+function projectCard(name, s){
+  return '<div class="card card-pad" style="cursor:pointer" onclick="openProjectTasks(\''+escAttr(name)+'\')">' +
+    '<div class="flex-between" style="margin-bottom:10px"><span style="font-weight:800;font-size:13.5px">'+name+'</span><span class="pill" style="background:var(--accent-soft);color:var(--accent-strong)">'+s.total+' tasks</span></div>' +
+    '<div class="grid" style="grid-template-columns:repeat(3,1fr);gap:8px;text-align:center;margin-bottom:10px">' +
+      '<div><div style="font-weight:800;color:var(--good)" class="num">'+s.completed+'</div><div class="sub">Completed</div></div>' +
+      '<div><div style="font-weight:800;color:'+(s.overdue>0?'var(--bad)':'var(--ink)')+'" class="num">'+s.overdue+'</div><div class="sub">Overdue</div></div>' +
+      '<div><div style="font-weight:800" class="num">'+Math.round(s.completionRate)+'%</div><div class="sub">Completion</div></div>' +
+    '</div>' +
+    '<div class="bar-row" style="padding:0 0 10px"><span class="bar-track"><span class="bar-fill" style="width:'+Math.round(s.efficiency)+'%"></span></span><span class="sub" style="width:64px;text-align:right">'+Math.round(s.efficiency)+' eff.</span></div>' +
+    '<div class="flex gap-6" style="flex-wrap:wrap">' + s.members.slice(0,6).map(m=>avatar(m,22)).join('') + (s.members.length===0?'<span class="sub">No one assigned yet</span>':'') + '</div>' +
+  '</div>';
+}
+function viewProjects(){
+  const cards = DB.projects.map(p => {
+    const list = DB.tasks.filter(t => t.project===p);
+    const nonCancelled = list.filter(t => t.status!=='Cancelled');
+    const stats = computeStats(list);
+    const overdue = nonCancelled.filter(isOverdue).length;
+    const members = Array.from(new Set(list.map(t=>t.assignedTo).filter(Boolean))).map(id => DB.employees.find(e=>e.id===id)).filter(Boolean);
+    return projectCard(p, { total: nonCancelled.length, completed: stats.completed, overdue, completionRate: stats.completionRate, efficiency: stats.efficiency, members });
+  });
+  return '<div class="page-head"><div><div class="page-title">Projects</div><div class="page-sub">Task and efficiency breakdown by project / client campaign</div></div>' +
+    (isAdmin() ? '<div class="page-actions"><button class="btn" onclick="setView(\'settings\')">'+icon('gear',13)+' Manage Projects</button></div>' : '') +
+  '</div>' +
+  '<div class="grid grid-3">' + cards.join('') + '</div>';
+}
+
+/* =====================================================================
+   15. TEAM (admin)
+   ===================================================================== */
+function askToggleActive(id){ state.confirmDeactivateEmpId = id; render(); }
+function cancelDeactivate(){ state.confirmDeactivateEmpId = null; render(); }
+function confirmToggleActive(id){
+  const e = DB.employees.find(x => x.id === id);
+  DB.updateEmployee(id, { active: !e.active });
+  if (!e.active && state.currentUserId === id){
+    state.currentUserId = DB.employees.find(x => x.role==='admin').id;
+  }
+  state.confirmDeactivateEmpId = null;
+  showToast(e.active ? 'Employee activated' : 'Employee deactivated');
+}
+function deactivateButtonInline(e){
+  if (state.confirmDeactivateEmpId === e.id){
+    return '<button class="btn btn-sm btn-danger" onclick="confirmToggleActive(\''+e.id+'\')">Confirm?</button><button class="btn btn-sm btn-ghost" onclick="cancelDeactivate()">'+icon('x',11)+'</button>';
+  }
+  return '<button class="btn btn-sm btn-ghost" title="'+(e.active?'Deactivate':'Activate')+'" onclick="askToggleActive(\''+e.id+'\')">'+(e.active?icon('x',12):icon('check',12))+'</button>';
+}
+function teamRow(e){
+  const now = todayDate();
+  const stats = computeStats(tasksForEmployeeInMonth(e.id, now.getFullYear(), now.getMonth()));
+  const active = DB.tasks.filter(t => t.assignedTo===e.id && t.status!=='Completed' && t.status!=='Cancelled').length;
+  const totalCompleted = DB.tasks.filter(t => t.assignedTo===e.id && t.status==='Completed').length;
+  return '<tr class="row">' +
+    '<td class="flex gap-8" style="cursor:pointer;font-weight:700" onclick="openEmployeeDetail(\''+e.id+'\')">'+avatar(e,26)+e.name+(e.active?'':' <span class="sub">(inactive)</span>')+'</td>' +
+    '<td>'+(e.role==='admin'?'Admin':'Member')+'</td>' +
+    '<td>'+e.department+'</td>' +
+    '<td class="sub">'+fmtDate(e.joinDate)+'</td>' +
+    '<td>'+(e.active?'<span class="pill pill-status-completed">Active</span>':'<span class="pill pill-status-cancelled">Inactive</span>')+'</td>' +
+    '<td class="num">'+active+'</td><td class="num">'+totalCompleted+'</td>' +
+    '<td class="num" style="font-weight:800">'+(e.role==='member'?Math.round(stats.efficiency):'—')+'</td>' +
+    '<td><div class="flex gap-6">' +
+      '<button class="btn btn-sm btn-ghost" onclick="openEditEmployee(\''+e.id+'\')" title="Edit">'+icon('edit',12)+'</button>' +
+      (e.role!=='admin' ? deactivateButtonInline(e) : '') +
+    '</div></td>' +
+  '</tr>';
+}
+function viewTeam(){
+  return '<div class="page-head"><div><div class="page-title">Team</div><div class="page-sub">'+DB.employees.filter(e=>e.active).length+' active members</div></div>' +
+    '<div class="page-actions"><button class="btn btn-primary" onclick="openCreateEmployee()">'+icon('plus',14)+' Add Employee</button></div></div>' +
+  '<div class="card"><div class="table-wrap"><table><thead><tr><th>Name</th><th>Role</th><th>Department</th><th>Joined</th><th>Status</th><th>Active Tasks</th><th>Completed</th><th>Efficiency</th><th>Action</th></tr></thead><tbody>' +
+    DB.employees.map(e => teamRow(e)).join('') +
+  '</tbody></table></div></div>';
+}
+
+/* =====================================================================
+   16. SETTINGS (admin) — departments & projects
+   ===================================================================== */
+function configRow(name, kind){
+  const renaming = state.renaming && state.renaming.kind===kind && state.renaming.name===name;
+  if (renaming){
+    return '<div class="flex gap-8"><input id="rename-input" class="field" style="flex:1" value="'+escAttr(name)+'" /><button class="btn btn-sm btn-primary" onclick="'+(kind==='dept'?'renameDeptUI':'renameProjectUI')+'(\''+escAttr(name)+'\')">Save</button><button class="btn btn-sm btn-ghost" onclick="state.renaming=null;render();">Cancel</button></div>';
+  }
+  return '<div class="flex-between"><span style="font-size:12.5px;font-weight:600">'+name+'</span><button class="btn btn-sm btn-ghost" onclick="state.renaming={kind:\''+kind+'\',name:\''+escAttr(name)+'\'};render();">'+icon('edit',12)+'</button></div>';
+}
+function addDepartmentUI(){ const v = document.getElementById('new-dept-input').value; if (v.trim()){ DB.addDepartment(v); showToast('Department added'); render(); } }
+function addProjectUI(){ const v = document.getElementById('new-project-input').value; if (v.trim()){ DB.addProject(v); showToast('Project added'); render(); } }
+function renameDeptUI(oldName){ const v = document.getElementById('rename-input').value; if (v.trim()){ DB.renameDepartment(oldName, v); state.renaming=null; showToast('Department renamed'); render(); } }
+function renameProjectUI(oldName){ const v = document.getElementById('rename-input').value; if (v.trim()){ DB.renameProject(oldName, v); state.renaming=null; showToast('Project renamed'); render(); } }
+function viewSettings(){
+  return '<div class="page-head"><div><div class="page-title">Settings</div><div class="page-sub">Manage departments and projects used across the workspace</div></div></div>' +
+    '<div class="grid grid-2">' +
+      '<div class="card"><div class="card-head"><span class="card-title">Departments</span></div><div class="card-pad stack">' +
+        DB.departments.map(dpt => configRow(dpt,'dept')).join('') +
+        '<div class="flex gap-8" style="margin-top:6px"><input id="new-dept-input" class="field" style="flex:1" placeholder="New department name" /><button class="btn btn-sm btn-primary" onclick="addDepartmentUI()">Add</button></div>' +
+      '</div></div>' +
+      '<div class="card"><div class="card-head"><span class="card-title">Projects / Clients</span></div><div class="card-pad stack">' +
+        DB.projects.map(p => configRow(p,'project')).join('') +
+        '<div class="flex gap-8" style="margin-top:6px"><input id="new-project-input" class="field" style="flex:1" placeholder="New project name" /><button class="btn btn-sm btn-primary" onclick="addProjectUI()">Add</button></div>' +
+      '</div></div>' +
+    '</div>' +
+    '<div class="card card-pad" style="margin-top:16px">' +
+      '<div class="card-title-sm" style="margin-bottom:6px">Data & Integrations</div>' +
+      '<div class="sub">This workspace currently runs on in-memory demo data that persists for the duration of this session (see the <span class="mono">DB</span> object at the top of the script). It is deliberately kept separate from every view, so it can later be swapped for Supabase, Firebase, Airtable or PostgreSQL without changing any screen in this app.</div>' +
+    '</div>';
+}
+
+/* =====================================================================
+   17. MODALS — task form, task detail, employee form, employee detail
+   ===================================================================== */
+function renderModal(){
+  const m = state.modal;
+  if (m.type === 'taskForm') return renderTaskFormModal(m.taskId);
+  if (m.type === 'taskDetail') return renderTaskDetailModal(m.taskId);
+  if (m.type === 'employeeForm') return renderEmployeeFormModal(m.empId);
+  if (m.type === 'employeeDetail') return renderEmployeeDetailModal(m.empId);
+  return '';
+}
+
+/* ---- Task Form (Create / Edit) ---- */
+function openCreateTask(){ state.modal = { type:'taskForm', taskId:null }; render(); }
+function openEditTask(id){ state.modal = { type:'taskForm', taskId:id, confirmDelete:false }; render(); }
+function renderTaskFormModal(taskId){
+  const t = taskId ? DB.tasks.find(x => x.id===taskId) : null;
+  const isEdit = !!t;
+  const activeEmps = DB.employees.filter(e => e.active);
+  const assignedByName = isEdit ? (DB.employees.find(e=>e.id===t.assignedBy)||{}).name : currentUser().name;
+  return '<div class="modal-overlay" onclick="if(event.target===this) closeModal()"><div class="modal wide">' +
+    '<div class="modal-head"><h3>'+(isEdit?'Edit Task':'Create Task')+'</h3><span class="close-x" onclick="closeModal()">'+icon('x',15)+'</span></div>' +
+    '<div class="modal-body">' +
+      '<div class="field-row single"><div class="field-group"><label>Task Name</label><input id="tf-name" class="field" value="'+escAttr(t?t.name:'')+'" placeholder="e.g. Meta Ads creative refresh — Keystone Seasons" /></div></div>' +
+      '<div class="field-row single"><div class="field-group"><label>Description</label><textarea id="tf-desc" class="field" rows="3" placeholder="What needs to be done">'+escHtml(t?t.description:'')+'</textarea></div></div>' +
+      '<div class="field-row">' +
+        '<div class="field-group"><label>Assigned To</label><select id="tf-assignee"><option value="">Unassigned</option>'+activeEmps.map(e=>'<option value="'+e.id+'" '+(t&&t.assignedTo===e.id?'selected':'')+'>'+e.name+'</option>').join('')+'</select></div>' +
+        '<div class="field-group"><label>Assigned By</label><input class="field" value="'+escAttr(assignedByName)+'" disabled /></div>' +
+      '</div>' +
+      '<div class="field-row">' +
+        '<div class="field-group"><label>Department</label><select id="tf-dept">'+DB.departments.map(dpt=>'<option '+((t?t.department:currentUser().department)===dpt?'selected':'')+'>'+dpt+'</option>').join('')+'</select></div>' +
+        '<div class="field-group"><label>Project / Client</label><select id="tf-project">'+DB.projects.map(p=>'<option '+((t&&t.project===p)?'selected':'')+'>'+p+'</option>').join('')+'</select></div>' +
+      '</div>' +
+      '<div class="field-row">' +
+        '<div class="field-group"><label>Start Date</label><input id="tf-start" type="date" class="field" value="'+(t?t.startDate:todayISO())+'" /></div>' +
+        '<div class="field-group"><label>Due Date</label><input id="tf-due" type="date" class="field" value="'+(t?t.dueDate:addDaysISO(todayISO(),5))+'" /></div>' +
+      '</div>' +
+      '<div class="field-row">' +
+        '<div class="field-group"><label>Priority</label><select id="tf-priority">'+PRIORITIES.map(p=>'<option '+((t?t.priority:'Medium')===p?'selected':'')+'>'+p+'</option>').join('')+'</select></div>' +
+        '<div class="field-group"><label>Task Level</label><select id="tf-level">'+[1,2,3,4].map(l=>'<option value="'+l+'" '+((t?t.level:2)===l?'selected':'')+'>Level '+l+' — '+LEVELS[l].label+'</option>').join('')+'</select></div>' +
+      '</div>' +
+      '<div class="field-row">' +
+        '<div class="field-group"><label>Estimated Time (hrs)</label><input id="tf-est" type="number" min="0" step="0.5" class="field" value="'+(t?t.estimatedHours:4)+'" /></div>' +
+        '<div class="field-group"><label>Status</label><select id="tf-status">'+STATUSES.map(s=>'<option '+((t?t.status:'Not Started')===s?'selected':'')+'>'+s+'</option>').join('')+'</select></div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="modal-foot">' +
+      (isEdit ? (state.modal.confirmDelete ?
+          '<span style="margin-right:auto;color:var(--bad);font-weight:700;font-size:12.5px;align-self:center">Delete this task permanently?</span><button class="btn btn-sm btn-danger" onclick="DB.deleteTask(\''+t.id+'\');closeModal();showToast(\'Task deleted\');">Yes, delete</button><button class="btn btn-sm btn-ghost" onclick="state.modal.confirmDelete=false;render();">Cancel</button>'
+        : '<button class="btn btn-danger" style="margin-right:auto" onclick="state.modal.confirmDelete=true;render();">Delete Task</button>')
+      : '') +
+      (!(isEdit && state.modal.confirmDelete) ? ('<button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveTaskForm('+(isEdit?"'"+t.id+"'":'null')+')">Save Task</button>') : '') +
+    '</div>' +
+  '</div></div>';
+}
+function saveTaskForm(id){
+  const name = document.getElementById('tf-name').value.trim();
+  if (!name){ showToast('Task name is required'); return; }
+  const assignee = document.getElementById('tf-assignee').value || null;
+  const dept = document.getElementById('tf-dept').value;
+  const project = document.getElementById('tf-project').value;
+  const start = document.getElementById('tf-start').value;
+  const due = document.getElementById('tf-due').value;
+  const priority = document.getElementById('tf-priority').value;
+  const level = Number(document.getElementById('tf-level').value);
+  const est = Number(document.getElementById('tf-est').value) || 0;
+  const status = document.getElementById('tf-status').value;
+  const desc = document.getElementById('tf-desc').value.trim();
+  if (!start || !due){ showToast('Start and due dates are required'); return; }
+  if (due < start){ showToast('Due date cannot be before the start date'); return; }
+
+  if (id){
+    const cur = DB.tasks.find(x => x.id===id);
+    const patch = { name, description:desc, assignedTo:assignee, department:dept, project, startDate:start, dueDate:due, priority, level, estimatedHours:est, status };
+    if (status === 'Completed' && cur.status !== 'Completed'){ patch.completionDate = new Date().toISOString(); patch.progress = 100; }
+    else if (status !== 'Completed' && cur.status === 'Completed'){ patch.completionDate = null; patch.progress = 75; }
+    DB.updateTask(id, patch);
+    showToast('Task updated');
+  } else {
+    DB.addTask({ name, description:desc, assignedTo:assignee, assignedBy:currentUser().id, department:dept, project,
+      createdDate:todayISO(), startDate:start, dueDate:due, priority, level, status, estimatedHours:est, actualHours:null,
+      progress: status==='Completed'?100:0, completionDate: status==='Completed'?new Date().toISOString():null, completionNotes:'' });
+    showToast('Task created');
+  }
+  closeModal();
+}
+
+/* ---- Task Detail (progress, status, comments, completion) ---- */
+function openTaskDetail(id){ state.modal = { type:'taskDetail', taskId:id, showCompletionPrompt:false }; state.notifOpen = false; render(); }
+function setProgress(id, val){
+  const t = DB.tasks.find(x => x.id===id);
+  if (!canUpdateProgress(t)) return;
+  if (val === 100){ state.modal.showCompletionPrompt = true; render(); return; }
+  const patch = { progress: val };
+  if (t.status === 'Not Started' && val > 0) patch.status = 'In Progress';
+  if (t.status === 'Completed' && val < 100){ patch.status = val > 0 ? 'In Progress' : 'Not Started'; patch.completionDate = null; }
+  DB.updateTask(id, patch);
+  render();
+}
+function confirmCompletion(id){
+  const notes = document.getElementById('completion-notes').value.trim();
+  DB.updateTask(id, { progress:100, status:'Completed', completionDate:new Date().toISOString(), completionNotes:notes });
+  DB.addComment(id, notes || 'Marked as complete.', currentUser().id, 'completion');
+  state.modal.showCompletionPrompt = false;
+  showToast('Task marked complete');
+}
+function cancelCompletionPrompt(){ state.modal.showCompletionPrompt = false; render(); }
+function setTaskStatus(id, status){
+  const t = DB.tasks.find(x => x.id===id);
+  if (!canUpdateProgress(t)) return;
+  if (status === 'Completed'){ state.modal.showCompletionPrompt = true; render(); return; }
+  const patch = { status };
+  if (status === 'Not Started') patch.progress = 0;
+  if (t.status === 'Completed' && status !== 'Completed') patch.completionDate = null;
+  DB.updateTask(id, patch);
+  render();
+}
+function addTaskComment(id){
+  const box = document.getElementById('comment-box');
+  const text = box.value.trim();
+  if (!text) return;
+  DB.addComment(id, text, currentUser().id, 'comment');
+  render();
+}
+function detailField(label, value){ return '<div class="flex-between" style="font-size:12.5px;padding:3px 0"><span class="muted">'+label+'</span><span style="font-weight:600;text-align:right">'+value+'</span></div>'; }
+function commentBlock(c){
+  const author = DB.employees.find(e => e.id===c.authorId);
+  return '<div class="comment"><div class="meta">'+(author?author.name:'Unknown')+' · '+fmtDateTime(c.at)+(c.type==='completion'?' · Completion note':'')+'</div>'+escHtml(c.text)+'</div>';
+}
+function completionPromptBlock(t){
+  return '<div class="card" style="background:var(--accent-soft);border-color:var(--accent);padding:10px;margin-top:4px">' +
+    '<div style="font-weight:700;font-size:12.5px;margin-bottom:6px">Mark as complete — add completion notes</div>' +
+    '<textarea id="completion-notes" class="field" rows="2" placeholder="What was delivered? Any follow-ups?"></textarea>' +
+    '<div class="flex gap-8" style="margin-top:8px"><button class="btn btn-sm btn-primary" onclick="confirmCompletion(\''+t.id+'\')">Confirm Completion</button><button class="btn btn-sm btn-ghost" onclick="cancelCompletionPrompt()">Cancel</button></div>' +
+  '</div>';
+}
+function renderTaskDetailModal(taskId){
+  const t = DB.tasks.find(x => x.id===taskId);
+  if (!t) return '';
+  const assignee = DB.employees.find(e => e.id===t.assignedTo);
+  const assignedBy = DB.employees.find(e => e.id===t.assignedBy);
+  const editable = canUpdateProgress(t);
+  return '<div class="modal-overlay" onclick="if(event.target===this) closeModal()"><div class="modal wide">' +
+    '<div class="modal-head"><div><h3>'+t.name+'</h3><div class="sub mono">'+t.id+'</div></div>' +
+      '<div class="flex gap-8">' + (isAdmin()?('<button class="btn btn-sm btn-ghost" onclick="openEditTask(\''+t.id+'\')">'+icon('edit',13)+' Edit</button>'):'') + '<span class="close-x" onclick="closeModal()">'+icon('x',15)+'</span></div>' +
+    '</div>' +
+    '<div class="modal-body">' +
+      '<div class="grid grid-2" style="gap:24px;align-items:start">' +
+        '<div class="stack">' +
+          '<div class="flex gap-8" style="flex-wrap:wrap">'+priorityPill(t.priority)+levelBars(t.level)+statusPill(t)+'</div>' +
+          '<div class="sub">'+escHtml(t.description||'No description provided.')+'</div>' +
+          '<div class="divider"></div>' +
+          detailField('Assigned To', assignee?assignee.name:'<span class="muted">Unassigned</span>') +
+          detailField('Assigned By', assignedBy?assignedBy.name:'—') +
+          detailField('Department', t.department) + detailField('Project / Client', t.project) +
+          detailField('Created', fmtDate(t.createdDate)) + detailField('Start Date', fmtDate(t.startDate)) +
+          detailField('Due Date', fmtDate(t.dueDate)) + detailField('Days Remaining', daysRemainingLabel(t)) +
+          detailField('Estimated Time', t.estimatedHours+' hrs') + detailField('Actual Time', t.actualHours!=null?t.actualHours+' hrs':'—') +
+          (t.completionDate ? detailField('Completed', fmtDateTime(t.completionDate)) : '') +
+        '</div>' +
+        '<div class="stack">' +
+          '<div class="card-title-sm">Progress</div>' +
+          '<div class="progress-track lg"><div class="progress-fill" style="width:'+t.progress+'%"></div></div>' +
+          '<div class="flex gap-6" style="flex-wrap:wrap">' + [0,25,50,75,100].map(v=>'<button class="btn btn-sm '+(t.progress===v?'btn-primary':'')+'" '+(editable?'':'disabled')+' onclick="setProgress(\''+t.id+'\','+v+')">'+v+'%</button>').join('') + '</div>' +
+          (state.modal.showCompletionPrompt ? completionPromptBlock(t) : '') +
+          '<div class="divider"></div>' +
+          '<div class="card-title-sm">Status</div>' +
+          '<select '+(editable?'':'disabled')+' onchange="setTaskStatus(\''+t.id+'\', this.value)">' +
+            (isAdmin()?STATUSES:['Not Started','In Progress','On Hold']).map(s=>'<option '+(t.status===s?'selected':'')+'>'+s+'</option>').join('') +
+          '</select>' +
+          (t.completionNotes ? ('<div class="divider"></div><div class="card-title-sm">Completion Notes</div><div class="comment">'+escHtml(t.completionNotes)+'</div>') : '') +
+          '<div class="divider"></div>' +
+          '<div class="card-title-sm">Comments</div>' +
+          '<div class="stack" style="max-height:170px;overflow-y:auto">' +
+            (t.comments.length ? t.comments.map(c=>commentBlock(c)).join('') : '<div class="sub">No comments yet.</div>') +
+          '</div>' +
+          '<textarea id="comment-box" class="field" rows="2" placeholder="Add a comment or note…"></textarea>' +
+          '<button class="btn btn-sm" onclick="addTaskComment(\''+t.id+'\')">'+icon('message',12)+' Post Comment</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>' +
+  '</div></div>';
+}
+
+/* =====================================================================
+   18. REPORTS — monthly performance, leaderboard, MoM, AI summary, export
+   ===================================================================== */
+function reportPeriodOptions(){
+  const opts = []; let y = today0.getFullYear(), m = today0.getMonth();
+  for (let i=0;i<6;i++){ opts.push({y,m}); const p = prevMonth(y,m); y=p.y; m=p.m; }
+  return opts;
+}
+function setReportPeriod(v){ const p = v.split('-').map(Number); state.report.year=p[0]; state.report.month=p[1]; render(); }
+function setReportFilter(key, v){ state.report[key] = v; render(); }
+function selectReportEmployee(id){ state.report.selectedEmp = (state.report.selectedEmp===id) ? null : id; render(); }
+function toggleCompareMode(){
+  state.report.compareMode = !state.report.compareMode;
+  if (state.report.compareMode && state.report.cMonth==null){
+    const p = prevMonth(state.report.year, state.report.month);
+    state.report.cYear = p.y; state.report.cMonth = p.m;
+  }
+  render();
+}
+function setComparePeriod(v){ const p = v.split('-').map(Number); state.report.cYear=p[0]; state.report.cMonth=p[1]; render(); }
+
+function periodSelect(id, selectedY, selectedM, onchange){
+  return '<select class="field" onchange="'+onchange+'(this.value)">' +
+    reportPeriodOptions().map(o => '<option value="'+o.y+'-'+o.m+'" '+(o.y===selectedY&&o.m===selectedM?'selected':'')+'>'+monthLabel(o.y,o.m)+'</option>').join('') +
+  '</select>';
+}
+function reportSelectFilter(key, options, current, label, labelMap){
+  return '<select class="field" onchange="setReportFilter(\''+key+'\', this.value)" title="'+label+'">' +
+    options.map(o => '<option value="'+o+'" '+(o===current?'selected':'')+'>'+(o==='All'?'All '+label+'s':(labelMap&&labelMap[o]?labelMap[o]:o))+'</option>').join('') +
+  '</select>';
+}
+
+function exportMonthlyCsv(rows, y, m){
+  const headers = ['Employee','Department','Assigned','Completed','Pending','Overdue','Completion %','On-Time %','Task Points','Efficiency Score'];
+  const data = rows.map(r => [r.employee.name, r.employee.department, r.stats.assigned, r.stats.completed, r.stats.pending, r.stats.overdue,
+    Math.round(r.stats.completionRate), Math.round(r.stats.onTimeRate), r.stats.taskPoints, Math.round(r.stats.efficiency)]);
+  csvDownload('monthly_report_'+y+'-'+pad2(m+1)+'.csv', headers, data);
+}
+
+function viewReports(u){
+  if (!isAdmin()) return viewReportsMember(u);
+  const r = state.report;
+  const rows = leaderboard(r.year, r.month, { dept:r.dept, project:r.project, level:r.level, employee:r.employee });
+  const selected = r.selectedEmp ? rows.find(x => x.employee.id===r.selectedEmp) : null;
+  let mom = null;
+  if (r.compareMode && r.selectedEmp != null) mom = momCompare(r.selectedEmp, r.cYear, r.cMonth, r.year, r.month);
+
+  return '<div class="page-head"><div><div class="page-title">Reports</div><div class="page-sub">Monthly performance, efficiency scoring and team leaderboard</div></div></div>' +
+    '<div class="filter-bar">' +
+      periodSelect('rp', r.year, r.month, 'setReportPeriod') +
+      reportSelectFilter('dept', ['All'].concat(DB.departments), r.dept, 'Department') +
+      reportSelectFilter('project', ['All'].concat(DB.projects), r.project, 'Project') +
+      reportSelectFilter('level', ['All','1','2','3','4'], r.level||'All', 'Level', {'1':'Level 1','2':'Level 2','3':'Level 3','4':'Level 4'}) +
+      reportSelectFilter('employee', ['All'].concat(DB.employees.filter(e=>e.role==='member').map(e=>e.id)), r.employee||'All', 'Employee', empLabelMap()) +
+      '<button class="btn btn-sm" onclick="exportMonthlyCsv_(this)">'+icon('download',13)+' Export CSV</button>' +
+      '<button class="btn btn-sm btn-ghost" onclick="printReport()">'+icon('print',13)+' Print</button>' +
+    '</div>' +
+
+    '<div class="card" style="margin-bottom:16px"><div class="card-head"><span class="card-title">Monthly Leaderboard — '+monthLabel(r.year,r.month)+'</span><span class="sub">click a row for the full breakdown & AI summary</span></div><div class="card-pad">' +
+      (rows.length ? leaderboardTable(rows) : '<div class="empty-state">No matching task activity for this period.</div>') +
+    '</div></div>' +
+
+    (selected ? employeeReportPanel(selected, r) : '') +
+
+    '<div class="card"><div class="card-head"><span class="card-title">Month-over-Month Comparison</span>' +
+      '<label class="flex gap-6" style="font-size:12px;font-weight:700;cursor:pointer"><input type="checkbox" '+(r.compareMode?'checked':'')+' onchange="toggleCompareMode()" /> Enable</label>' +
+    '</div><div class="card-pad">' +
+      (!r.compareMode ? '<div class="sub">Select an employee from the leaderboard above, then enable comparison to see how their performance changed between two months.</div>' :
+        (!r.selectedEmp ? '<div class="sub">Click an employee row in the leaderboard above to compare their performance.</div>' :
+          momComparePanel(r.selectedEmp, mom))
+      ) +
+    '</div></div>';
+}
+window.exportMonthlyCsv_ = function(el){
+  const r = state.report;
+  const rows = leaderboard(r.year, r.month, { dept:r.dept, project:r.project, level:r.level, employee:r.employee });
+  exportMonthlyCsv(rows, r.year, r.month);
+};
+
+function leaderboardTable(rows){
+  return '<div class="table-wrap"><table><thead><tr><th>Rank</th><th>Employee</th><th>Department</th><th>Tasks</th><th>Completed</th><th>Overdue</th><th>On-Time %</th><th>Task Points</th><th>Efficiency</th></tr></thead><tbody>' +
+    rows.map((r,i) => '<tr class="row" style="cursor:pointer" onclick="selectReportEmployee(\''+r.employee.id+'\')"><td>'+rankBadge(i+1)+'</td>' +
+      '<td class="flex gap-8">'+avatar(r.employee,22)+r.employee.name+'</td><td class="sub">'+r.employee.department+'</td>' +
+      '<td class="num">'+r.stats.assigned+'</td><td class="num">'+r.stats.completed+'</td>' +
+      '<td class="num" style="color:'+(r.stats.overdue>0?'var(--bad)':'inherit')+'">'+r.stats.overdue+'</td>' +
+      '<td class="num">'+Math.round(r.stats.onTimeRate)+'%</td><td class="num">'+r.stats.taskPoints+'</td>' +
+      '<td class="num" style="font-weight:800">'+Math.round(r.stats.efficiency)+'</td></tr>').join('') +
+  '</tbody></table></div>';
+}
+function employeeReportPanel(sel, r){
+  const ai = aiSummary(sel.employee, sel.stats, null);
+  return '<div class="card" style="margin-bottom:16px"><div class="card-head"><span class="card-title">'+sel.employee.name+' — Efficiency Breakdown</span><span class="sub">Efficiency Score: '+Math.round(sel.stats.efficiency)+'/100</span></div><div class="card-pad">' +
+    '<div class="grid grid-2" style="gap:24px;align-items:start">' +
+      '<div class="stack"><div class="flex gap-14">'+scoreRing(sel.stats.efficiency,72)+'<div><div style="font-weight:800;font-size:15px">Efficiency Score: '+Math.round(sel.stats.efficiency)+'/100</div><div class="sub">Weighted from the five components below — nothing hidden.</div></div></div>' +
+        efficiencyBreakdownCard(sel.stats) +
+        '<div class="sub">Total Task Points Completed: <b class="num" style="color:var(--ink)">'+sel.stats.taskPoints+'</b> (of a possible '+sel.stats.maxPoints+' from '+sel.stats.completed+' completed task'+(sel.stats.completed===1?'':'s')+') — weighting Level 1–4 tasks at 1–4 points each so complex work counts for more.</div>' +
+      '</div>' +
+      '<div class="card card-pad" style="background:var(--surface-2)">' +
+        '<div class="card-title-sm" style="margin-bottom:6px">AI Performance Summary</div>' +
+        '<div style="font-size:12.5px;margin-bottom:10px">'+ai.summary+'</div>' +
+        '<div class="grid" style="grid-template-columns:1fr 1fr;gap:10px">' +
+          '<div><div class="card-title-sm" style="margin-bottom:4px">Strengths</div>'+ai.strengths.map(s=>'<div class="sub">• '+s+'</div>').join('')+'</div>' +
+          '<div><div class="card-title-sm" style="margin-bottom:4px">Areas to Improve</div>'+ai.improve.map(s=>'<div class="sub">• '+s+'</div>').join('')+'</div>' +
+        '</div><div class="divider"></div><div style="font-size:12.5px"><b>Manager recommendation:</b> '+ai.recommendation+'</div>' +
+      '</div>' +
+    '</div>' +
+  '</div></div>';
+}
+function momComparePanel(empId, mom){
+  const emp = DB.employees.find(e => e.id===empId);
+  const r = state.report;
+  return '<div class="flex gap-10" style="margin-bottom:12px;flex-wrap:wrap">' +
+      '<span class="sub" style="align-self:center">Comparing</span>' + periodSelect('cp', r.cYear, r.cMonth, 'setComparePeriod') +
+      '<span class="sub" style="align-self:center">→</span>' + periodSelect('rp2', r.year, r.month, 'setReportPeriod') +
+    '</div>' +
+    '<div class="grid" style="grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:10px">' +
+      momTile('Efficiency', mom.prev.stats.efficiency, mom.curr.stats.efficiency, mom.delta.efficiency, mom.delta.efficiencyPct) +
+      momTile('Completion Rate', mom.prev.stats.completionRate, mom.curr.stats.completionRate, mom.delta.completionRate) +
+      momTile('On-Time Rate', mom.prev.stats.onTimeRate, mom.curr.stats.onTimeRate, mom.delta.onTimeRate) +
+      momTile('Tasks Completed', mom.prev.stats.completed, mom.curr.stats.completed, mom.delta.completed, null, true) +
+      momTile('Overdue Tasks', mom.prev.stats.overdue, mom.curr.stats.overdue, mom.delta.overdue, null, true, true) +
+    '</div>' +
+    '<div class="flex gap-8"><span class="pill" style="background:var(--surface-2);color:var(--ink-soft)">'+emp.name+'</span>' +
+      '<span class="'+trendClass(mom.delta.efficiency)+'">Overall performance '+trendLabel(mom.delta.efficiency).toLowerCase()+' from '+monthLabel(mom.prev.year,mom.prev.month)+' to '+monthLabel(mom.curr.year,mom.curr.month)+(Math.abs(mom.delta.efficiencyPct)>=1.5?(' ('+(mom.delta.efficiencyPct>=0?'+':'')+mom.delta.efficiencyPct.toFixed(1)+'%)'):'')+'.</span>' +
+    '</div>';
+}
+function momTile(label, prev, curr, delta, deltaPct, isCount, invertGood){
+  const good = invertGood ? delta<=0 : delta>=0;
+  const cls = Math.abs(delta) < (isCount?0.5:1.5) ? 'trend-flat' : (good?'trend-up':'trend-down');
+  const fmt = v => isCount ? Math.round(v) : Math.round(v)+'%';
+  return '<div class="card kpi"><div class="kpi-label">'+label+'</div>' +
+    '<div class="kpi-value num" style="font-size:19px">'+fmt(prev)+' → '+fmt(curr)+'</div>' +
+    '<div class="kpi-foot '+cls+'">'+(delta>0?'+':'')+(isCount?Math.round(delta):Math.round(delta)+'pt')+(deltaPct!=null?' ('+(deltaPct>=0?'+':'')+deltaPct.toFixed(1)+'%)':'')+'</div>' +
+  '</div>';
+}
+
+/* ---- Member's own report ---- */
+function viewReportsMember(u){
+  const r = state.report;
+  const stats = computeStats(tasksForEmployeeInMonth(u.id, r.year, r.month));
+  const ai = aiSummary(u, stats, null);
+  let mom = null;
+  if (r.compareMode) mom = momCompare(u.id, r.cYear!=null?r.cYear:prevMonth(r.year,r.month).y, r.cMonth!=null?r.cMonth:prevMonth(r.year,r.month).m, r.year, r.month);
+  return '<div class="page-head"><div><div class="page-title">My Performance Report</div><div class="page-sub">Your monthly efficiency, transparently calculated</div></div>' +
+    '<div class="page-actions">' + periodSelect('rp', r.year, r.month, 'setReportPeriod') + '</div></div>' +
+    employeeReportPanel({employee:u, stats}, r) +
+    '<div class="card"><div class="card-head"><span class="card-title">Month-over-Month</span>' +
+      '<label class="flex gap-6" style="font-size:12px;font-weight:700;cursor:pointer"><input type="checkbox" '+(r.compareMode?'checked':'')+' onchange="toggleCompareMode()" /> Enable</label>' +
+    '</div><div class="card-pad">' +
+      (!r.compareMode ? '<div class="sub">Enable to compare this month against a previous month.</div>' : momComparePanel(u.id, mom)) +
+    '</div></div>';
+}
+
+/* ---- Employee Form (Add / Edit) ---- */
+function openCreateEmployee(){ state.modal = { type:'employeeForm', empId:null }; render(); }
+function openEditEmployee(id){ state.modal = { type:'employeeForm', empId:id }; render(); }
+function renderEmployeeFormModal(empId){
+  const e = empId ? DB.employees.find(x => x.id===empId) : null;
+  return '<div class="modal-overlay" onclick="if(event.target===this) closeModal()"><div class="modal">' +
+    '<div class="modal-head"><h3>'+(e?'Edit Employee':'Add Employee')+'</h3><span class="close-x" onclick="closeModal()">'+icon('x',15)+'</span></div>' +
+    '<div class="modal-body">' +
+      '<div class="field-row single"><div class="field-group"><label>Full Name</label><input id="ef-name" class="field" value="'+escAttr(e?e.name:'')+'" placeholder="e.g. Neha Kulkarni" /></div></div>' +
+      '<div class="field-row single"><div class="field-group"><label>Title</label><input id="ef-title" class="field" value="'+escAttr(e?e.title:'')+'" placeholder="e.g. Creative Designer" /></div></div>' +
+      '<div class="field-row">' +
+        '<div class="field-group"><label>Department</label><select id="ef-dept">'+DB.departments.map(dpt=>'<option '+((e?e.department:DB.departments[0])===dpt?'selected':'')+'>'+dpt+'</option>').join('')+'</select></div>' +
+        '<div class="field-group"><label>Role</label><select id="ef-role"><option value="member" '+(!e||e.role==='member'?'selected':'')+'>Team Member</option><option value="admin" '+(e&&e.role==='admin'?'selected':'')+'>Admin / Manager</option></select></div>' +
+      '</div>' +
+      '<div class="field-row single"><div class="field-group"><label>Joining Date</label><input id="ef-join" type="date" class="field" value="'+(e?e.joinDate:todayISO())+'" /></div></div>' +
+    '</div>' +
+    '<div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveEmployeeForm('+(e?"'"+e.id+"'":'null')+')">Save</button></div>' +
+  '</div></div>';
+}
+function saveEmployeeForm(id){
+  const name = document.getElementById('ef-name').value.trim();
+  if (!name){ showToast('Name is required'); return; }
+  const title = document.getElementById('ef-title').value.trim();
+  const department = document.getElementById('ef-dept').value;
+  const role = document.getElementById('ef-role').value;
+  const joinDate = document.getElementById('ef-join').value;
+  if (id){ DB.updateEmployee(id, {name, title, department, role, joinDate}); showToast('Employee updated'); }
+  else { DB.addEmployee({name, title, department, role, joinDate, active:true}); showToast('Employee added'); }
+  closeModal();
+}
+
+/* ---- Employee Detail (performance view) ---- */
+function openEmployeeDetail(id){ state.modal = { type:'employeeDetail', empId:id }; render(); }
+function renderEmployeeDetailModal(empId){
+  const e = DB.employees.find(x => x.id===empId);
+  if (!e) return '';
+  const now = todayDate();
+  const stats = computeStats(tasksForEmployeeInMonth(e.id, now.getFullYear(), now.getMonth()));
+  const allTasks = DB.tasks.filter(t => t.assignedTo===e.id).sort((a,b)=> a.dueDate<b.dueDate?1:-1).slice(0,10);
+  const ai = e.role==='member' ? aiSummary(e, stats, null) : null;
+  return '<div class="modal-overlay" onclick="if(event.target===this) closeModal()"><div class="modal wide">' +
+    '<div class="modal-head"><div class="flex gap-10">'+avatar(e,40)+'<div><h3>'+e.name+'</h3><div class="sub">'+(e.title||e.department)+' · '+e.department+'</div></div></div>' +
+      '<div class="flex gap-8">'+(isAdmin()?('<button class="btn btn-sm btn-ghost" onclick="openEditEmployee(\''+e.id+'\')">'+icon('edit',13)+' Edit</button>'):'')+'<span class="close-x" onclick="closeModal()">'+icon('x',15)+'</span></div>' +
+    '</div>' +
+    '<div class="modal-body">' +
+    (e.role==='member' ? (
+      '<div class="grid grid-2" style="gap:20px;align-items:start;margin-bottom:16px">' +
+        '<div class="stack"><div class="flex gap-14">'+scoreRing(stats.efficiency,64)+'<div><div class="card-title">Efficiency — '+monthLabel(now.getFullYear(),now.getMonth())+'</div><div class="sub">Transparent breakdown</div></div></div>' + efficiencyBreakdownCard(stats) + '</div>' +
+        '<div class="grid" style="grid-template-columns:repeat(2,1fr);gap:8px">' +
+          kpiTile('Assigned', stats.assigned) + kpiTile('Completed', stats.completed) + kpiTile('Pending', stats.pending) + kpiTile('Overdue', stats.overdue,'', stats.overdue>0?'bad':'') +
+        '</div>' +
+      '</div>'
+    ) : '<div class="empty-state">Admin accounts are excluded from individual performance scoring.</div>') +
+    (ai ? (
+      '<div class="card card-pad" style="background:var(--surface-2);margin-bottom:16px"><div class="card-title-sm" style="margin-bottom:6px">AI Performance Summary</div><div style="font-size:12.5px;margin-bottom:10px">'+ai.summary+'</div>' +
+        '<div class="grid" style="grid-template-columns:1fr 1fr;gap:10px">' +
+          '<div><div class="card-title-sm" style="margin-bottom:4px">Strengths</div>'+ai.strengths.map(s=>'<div class="sub">• '+s+'</div>').join('')+'</div>' +
+          '<div><div class="card-title-sm" style="margin-bottom:4px">Areas to Improve</div>'+ai.improve.map(s=>'<div class="sub">• '+s+'</div>').join('')+'</div>' +
+        '</div><div class="divider"></div><div style="font-size:12.5px"><b>Manager recommendation:</b> '+ai.recommendation+'</div>' +
+      '</div>'
+    ) : '') +
+    '<div class="card-title-sm" style="margin-bottom:6px">Recent Tasks</div>' +
+    '<div class="table-wrap"><table><thead><tr><th>Task</th><th>Project</th><th>Priority</th><th>Due</th><th>Status</th></tr></thead><tbody>' +
+      (allTasks.length ? allTasks.map(t=>'<tr class="row"><td class="task-name-cell" onclick="closeModal();openTaskDetail(\''+t.id+'\')">'+t.name+'</td><td>'+t.project+'</td><td>'+priorityPill(t.priority)+'</td><td class="num">'+fmtDateShort(t.dueDate)+'</td><td>'+statusPill(t)+'</td></tr>').join('') : '<tr><td colspan="5" class="empty-state">No tasks assigned yet.</td></tr>') +
+    '</tbody></table></div>' +
+    '</div>' +
+  '</div></div>';
+}
+
+/* =====================================================================
+   19. INIT
+   ===================================================================== */
+document.addEventListener('click', function(e){
+  if (state.notifOpen && !e.target.closest('.notif-panel') && !e.target.closest('.icon-btn')){
+    state.notifOpen = false; render();
+  }
+});
+
+seedDemoData();
+state.currentUserId = DB.employees.find(e => e.role === 'admin').id;
+render();
+</script>
+
+
