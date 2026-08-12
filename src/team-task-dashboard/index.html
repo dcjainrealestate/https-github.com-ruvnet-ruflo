@@ -830,9 +830,18 @@ const NAV = [
   {id:'settings', label:'Settings', icon:'gear', roles:['admin']}
 ];
 
+function renderAccessGate(){
+  return '<div style="min-height:100vh;width:100%;display:flex;align-items:center;justify-content:center;padding:24px;background:var(--bg)">' +
+    '<div class="card card-pad" style="max-width:420px;text-align:center">' +
+      '<div class="brand-mark" style="margin:0 auto 14px">TF</div>' +
+      '<div style="font-weight:800;font-size:16px;margin-bottom:6px">Personal link required</div>' +
+      '<div class="sub">This dashboard only opens through your own personal link — there is no general-access URL. Ask your manager for your link if you don\'t have it. Managers: use your own admin link, not a bare address.</div>' +
+    '</div>' +
+  '</div>';
+}
 function renderShell(){
   const u = currentUser();
-  if (!u) return '<div class="empty-state">Loading…</div>';
+  if (!u) return renderAccessGate();
   const alerts = computeAlerts(isAdmin() ? DB.tasks : DB.tasks.filter(t=>t.assignedTo===u.id));
   const notifCount = alerts.dueToday.length + alerts.overdue.length + (isAdmin()?alerts.unassigned.length:0);
 
@@ -1513,7 +1522,7 @@ function shareLinkRow(e){
 }
 function shareLinksCard(){
   return '<div class="card"><div class="card-head"><span class="card-title">Personal Dashboard Links</span></div><div class="card-pad">' +
-    '<div class="sub" style="margin-bottom:10px">Send each person the link below instead of this page\'s own URL. Each link ends in a code derived from their name (not the name itself), opens straight into their own locked dashboard, and hides the "View as" switcher — there is no field to edit and no menu to click over to a teammate\'s tasks or scores. Your own URL (the one you\'re on now, with no code below) keeps full manager access to everyone\'s data. These links only work for people who already exist when the page loads — anyone added below under Team only exists in your own browser and won\'t have a working link elsewhere until the app is connected to a real backend.</div>' +
+    '<div class="sub" style="margin-bottom:10px">There is no plain, general-access URL for this app anymore — every link below ends in a code derived from that person\'s name (not the name itself) and is the only way in. Your own row, marked "Manager — full access", is the one to bookmark for yourself; it keeps the "View as" switcher so you can still preview anyone\'s dashboard. Every other person\'s link opens straight into their own locked dashboard with the switcher hidden — no field to edit, no menu to click over to a teammate\'s tasks or scores. These links only work for people who already existed when the page loaded — anyone added below under Team only exists in your own browser and won\'t have a working link elsewhere until the app is connected to a real backend.</div>' +
     DB.employees.filter(e => e.active).map(e => shareLinkRow(e)).join('') +
     '<div class="sub" style="margin-top:10px">Heads up: this app has no server, so this stops casual link-guessing but is not real security — the full dataset still loads in every browser, so someone technical could open dev tools and read past the lock. Genuine per-person access control, and links for people added after launch, both need a real backend with authentication (see Data & Integrations below).</div>' +
   '</div></div>';
@@ -1966,10 +1975,10 @@ seedDemoData();
 const urlUser = getUrlUser();
 if (urlUser){
   state.currentUserId = urlUser.id;
-  state.locked = true;
+  state.locked = urlUser.role !== 'admin';
 } else {
-  state.currentUserId = DB.employees.find(e => e.role === 'admin').id;
-  state.locked = false;
+  state.currentUserId = null;
+  state.locked = true;
 }
 render();
 </script>
