@@ -283,9 +283,18 @@ const DB = (function(){
   const projects = ["Keystone Seasons","Keystone Elevate","Tonino Lamborghini","Digital Marketing","Meta Ads","Google Ads","CRM","Website","Events","Other"];
   const tasks = [];
 
+  function slugify(name){ return (name||'').toLowerCase().replace(/[^a-z0-9]+/g,''); }
+  function uniqueUsername(name){
+    const firstName = (name||'').trim().split(/\s+/)[0];
+    const base = slugify(firstName) || 'user';
+    let candidate = base, n = 2;
+    while (employees.some(e => e.username === candidate)){ candidate = base + n; n++; }
+    return candidate;
+  }
   function addEmployee(e){
     e.id = 'E' + (++seq.emp);
     e.active = e.active !== false;
+    e.username = uniqueUsername(e.name);
     employees.push(e);
     return e;
   }
@@ -701,6 +710,7 @@ function aiSummary(emp, stats, mom){
 const today0 = todayDate();
 const state = {
   currentUserId: null,
+  locked: false,
   view: 'dashboard',
   search: '',
   notifOpen: false,
@@ -752,6 +762,7 @@ function render(){
 
 function setView(v){ state.view = v; state.modal = null; render(); }
 function switchUser(id){
+  if (state.locked) return;
   state.currentUserId = id;
   if (state.view === 'team' || state.view === 'alltasks' || state.view === 'reports' || state.view === 'settings'){
     if (!isAdmin()) state.view = 'dashboard';
@@ -820,12 +831,16 @@ function renderShell(){
       ).join('') +
     '</nav>' +
     '<div class="sidebar-foot">' +
-      '<div class="role-switch">' +
-        '<label>View as</label>' +
-        '<select onchange="switchUser(this.value)">' +
-          DB.employees.filter(e=>e.active).map(e => '<option value="'+e.id+'" '+(e.id===u.id?'selected':'')+'>'+e.name+(e.role==='admin'?' (Admin)':'')+'</option>').join('') +
-        '</select>' +
-      '</div>' +
+      (state.locked ?
+        ('<div class="role-switch"><label>Signed in as</label><div class="flex gap-8">'+avatar(u,26)+'<div><div style="font-weight:800;font-size:12.5px">'+u.name+'</div><div class="sub">'+(u.role==='admin'?'Manager access':u.department)+'</div></div></div></div>')
+      :
+        ('<div class="role-switch">' +
+          '<label>View as</label>' +
+          '<select onchange="switchUser(this.value)">' +
+            DB.employees.filter(e=>e.active).map(e => '<option value="'+e.id+'" '+(e.id===u.id?'selected':'')+'>'+e.name+(e.role==='admin'?' (Admin)':'')+'</option>').join('') +
+          '</select>' +
+        '</div>')
+      ) +
     '</div>' +
   '</aside>' +
   '<div class="main">' +
@@ -1460,9 +1475,38 @@ function addDepartmentUI(){ const v = document.getElementById('new-dept-input').
 function addProjectUI(){ const v = document.getElementById('new-project-input').value; if (v.trim()){ DB.addProject(v); showToast('Project added'); render(); } }
 function renameDeptUI(oldName){ const v = document.getElementById('rename-input').value; if (v.trim()){ DB.renameDepartment(oldName, v); state.renaming=null; showToast('Department renamed'); render(); } }
 function renameProjectUI(oldName){ const v = document.getElementById('rename-input').value; if (v.trim()){ DB.renameProject(oldName, v); state.renaming=null; showToast('Project renamed'); render(); } }
+
+/* ---- Personal share links (URL-locked per-person view) ---- */
+function shareLink(username){
+  return window.location.origin + window.location.pathname + '?u=' + encodeURIComponent(username);
+}
+function copyShareLink(username){
+  const link = shareLink(username);
+  if (navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(link).then(() => showToast('Link copied')).catch(() => showToast('Copy failed — select the link and copy manually'));
+  } else {
+    showToast('Copy not supported here — select the link and copy manually');
+  }
+}
+function shareLinkRow(e){
+  const link = shareLink(e.username);
+  return '<div class="flex-between" style="gap:10px;flex-wrap:wrap;padding:6px 0;border-bottom:1px solid var(--border)">' +
+    '<span class="flex gap-8">'+avatar(e,24)+'<span style="font-size:12.5px;font-weight:700">'+e.name+(e.role==='admin'?' <span class="sub">(Manager — full access)</span>':' <span class="sub">('+e.department+')</span>')+'</span></span>' +
+    '<span class="flex gap-6"><input class="field mono" style="width:290px;font-size:11px" readonly value="'+escAttr(link)+'" onclick="this.select()" /><button class="btn btn-sm" onclick="copyShareLink(\''+e.username+'\')">'+icon('download',11)+' Copy</button></span>' +
+  '</div>';
+}
+function shareLinksCard(){
+  return '<div class="card"><div class="card-head"><span class="card-title">Personal Dashboard Links</span></div><div class="card-pad">' +
+    '<div class="sub" style="margin-bottom:10px">Send each person the link below instead of this page\'s own URL. It opens straight into their own locked dashboard — the "View as" switcher is hidden, so there is no way in the app to click over to a teammate\'s tasks or scores. Your own URL (the one you\'re on now, with no link below) keeps full manager access to everyone\'s data.</div>' +
+    DB.employees.filter(e => e.active).map(e => shareLinkRow(e)).join('') +
+    '<div class="sub" style="margin-top:10px">Heads up: this app has no server, so the lock is a convenience for a trusted team, not real security — the full dataset still loads in every browser and someone technical could still open dev tools and switch views. Genuine per-person access control needs a real backend with authentication (see Data & Integrations below).</div>' +
+  '</div></div>';
+}
+
 function viewSettings(){
-  return '<div class="page-head"><div><div class="page-title">Settings</div><div class="page-sub">Manage departments and projects used across the workspace</div></div></div>' +
-    '<div class="grid grid-2">' +
+  return '<div class="page-head"><div><div class="page-title">Settings</div><div class="page-sub">Manage departments, projects and personal sharing links</div></div></div>' +
+    shareLinksCard() +
+    '<div class="grid grid-2" style="margin-top:16px">' +
       '<div class="card"><div class="card-head"><span class="card-title">Departments</span></div><div class="card-pad stack">' +
         DB.departments.map(dpt => configRow(dpt,'dept')).join('') +
         '<div class="flex gap-8" style="margin-top:6px"><input id="new-dept-input" class="field" style="flex:1" placeholder="New department name" /><button class="btn btn-sm btn-primary" onclick="addDepartmentUI()">Add</button></div>' +
@@ -1893,8 +1937,24 @@ document.addEventListener('click', function(e){
   }
 });
 
+function getUrlUser(){
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const u = params.get('u');
+    if (!u) return null;
+    return DB.employees.find(e => e.username === u.toLowerCase() && e.active) || null;
+  } catch(e){ return null; }
+}
+
 seedDemoData();
-state.currentUserId = DB.employees.find(e => e.role === 'admin').id;
+const urlUser = getUrlUser();
+if (urlUser){
+  state.currentUserId = urlUser.id;
+  state.locked = true;
+} else {
+  state.currentUserId = DB.employees.find(e => e.role === 'admin').id;
+  state.locked = false;
+}
 render();
 </script>
 
