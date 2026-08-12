@@ -283,24 +283,24 @@ const DB = (function(){
   const projects = ["Keystone Seasons","Keystone Elevate","Tonino Lamborghini","Digital Marketing","Meta Ads","Google Ads","CRM","Website","Events","Other"];
   const tasks = [];
 
-  // Deterministic, non-guessable link token. Random tokens would look
-  // "more secure" but this app re-seeds its in-memory data from scratch
-  // on every page load — a random token would only ever match the one
-  // browser tab that generated it, breaking the link everywhere else.
-  // Hashing the name (with a fixed salt) instead gives a token that
-  // looks unrelated to the name, yet is reproduced identically every
-  // time this same code runs, so a link keeps working on any device.
+  // Deterministic, non-guessable access code, typed into the app rather
+  // than carried in the URL — the artifact host does not forward a
+  // page's query string into the sandboxed frame it renders, so a
+  // ?u=... link never actually reaches this script. Hashing the name
+  // (with a fixed salt) gives a short code that looks unrelated to the
+  // name, is reproduced identically every time this same code runs
+  // (so it works on any device), and is short enough to type by hand.
   function hash32(str){
     let h = 2166136261 >>> 0;
     for (let i=0;i<str.length;i++){ h ^= str.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
     return h >>> 0;
   }
   function deterministicToken(seedStr){
-    const s = 'taskframe-link-v1::' + seedStr;
+    const s = 'taskframe-code-v1::' + seedStr;
     const h1 = hash32(s);
     const h2 = hash32(s + '::' + h1.toString(36));
-    const h3 = hash32(h1.toString(36) + s + h2.toString(36));
-    return (h1.toString(36) + h2.toString(36) + h3.toString(36)).slice(0, 16);
+    const raw = normalizeCode(h1.toString(36) + h2.toString(36)).padEnd(8,'0').slice(0,8);
+    return raw.slice(0,4) + '-' + raw.slice(4,8);
   }
   function uniqueToken(name){
     let n = 0, candidate = deterministicToken(name);
@@ -772,6 +772,9 @@ function render(){
         try { el.setSelectionRange(selStart, selEnd); } catch(e){}
       }
     }
+  } else {
+    const codeInput = document.getElementById('access-code-input');
+    if (codeInput) codeInput.focus();
   }
   window.scrollTo(0, scrollY);
 }
@@ -830,12 +833,34 @@ const NAV = [
   {id:'settings', label:'Settings', icon:'gear', roles:['admin']}
 ];
 
+function normalizeCode(s){ return (s||'').toLowerCase().replace(/[^a-z0-9]/g,''); }
+function submitAccessCode(){
+  const raw = document.getElementById('access-code-input').value;
+  state.accessAttempt = raw;
+  const emp = DB.employees.find(e => e.active && normalizeCode(e.token) === normalizeCode(raw));
+  if (!emp){ state.accessError = true; render(); return; }
+  state.currentUserId = emp.id;
+  state.locked = emp.role !== 'admin';
+  state.accessError = false;
+  try { localStorage.setItem('tf_access_code', emp.token); } catch(e){}
+  render();
+}
+function signOut(){
+  state.currentUserId = null;
+  state.accessAttempt = '';
+  state.accessError = false;
+  try { localStorage.removeItem('tf_access_code'); } catch(e){}
+  render();
+}
 function renderAccessGate(){
   return '<div style="min-height:100vh;width:100%;display:flex;align-items:center;justify-content:center;padding:24px;background:var(--bg)">' +
-    '<div class="card card-pad" style="max-width:420px;text-align:center">' +
+    '<div class="card card-pad" style="max-width:380px;width:100%;text-align:center">' +
       '<div class="brand-mark" style="margin:0 auto 14px">TF</div>' +
-      '<div style="font-weight:800;font-size:16px;margin-bottom:6px">Personal link required</div>' +
-      '<div class="sub">This dashboard only opens through your own personal link — there is no general-access URL. Ask your manager for your link if you don\'t have it. Managers: use your own admin link, not a bare address.</div>' +
+      '<div style="font-weight:800;font-size:16px;margin-bottom:6px">Enter your access code</div>' +
+      '<div class="sub" style="margin-bottom:16px">Your manager gave you a short code — type it below to open your own dashboard. Managers use their own code the same way.</div>' +
+      '<input id="access-code-input" class="field" style="width:100%;text-align:center;font-size:15px;letter-spacing:.04em;padding:10px" placeholder="e.g. 7m9g-v51l" value="'+escAttr(state.accessAttempt||'')+'" onkeydown="if(event.key===\'Enter\') submitAccessCode()" />' +
+      (state.accessError ? '<div style="color:var(--bad);font-size:12px;font-weight:700;margin-top:8px">Code not recognized — check with your manager and try again.</div>' : '') +
+      '<button class="btn btn-primary" style="width:100%;margin-top:12px;justify-content:center" onclick="submitAccessCode()">Continue</button>' +
     '</div>' +
   '</div>';
 }
@@ -855,7 +880,7 @@ function renderShell(){
         '</div>'
       ).join('') +
     '</nav>' +
-    '<div class="sidebar-foot">' +
+    '<div class="sidebar-foot stack">' +
       (state.locked ?
         ('<div class="role-switch"><label>Signed in as</label><div class="flex gap-8">'+avatar(u,26)+'<div><div style="font-weight:800;font-size:12.5px">'+u.name+'</div><div class="sub">'+(u.role==='admin'?'Manager access':u.department)+'</div></div></div></div>')
       :
@@ -866,6 +891,7 @@ function renderShell(){
           '</select>' +
         '</div>')
       ) +
+      '<button class="btn btn-sm btn-ghost" style="width:100%;justify-content:center" onclick="signOut()">'+icon('x',12)+' Switch account</button>' +
     '</div>' +
   '</aside>' +
   '<div class="main">' +
@@ -1502,29 +1528,24 @@ function renameDeptUI(oldName){ const v = document.getElementById('rename-input'
 function renameProjectUI(oldName){ const v = document.getElementById('rename-input').value; if (v.trim()){ DB.renameProject(oldName, v); state.renaming=null; showToast('Project renamed'); render(); } }
 
 /* ---- Personal share links (URL-locked per-person view) ---- */
-function shareLink(token){
-  return window.location.origin + window.location.pathname + '?u=' + encodeURIComponent(token);
-}
 function copyShareLink(token){
-  const link = shareLink(token);
   if (navigator.clipboard && navigator.clipboard.writeText){
-    navigator.clipboard.writeText(link).then(() => showToast('Link copied')).catch(() => showToast('Copy failed — select the link and copy manually'));
+    navigator.clipboard.writeText(token).then(() => showToast('Code copied')).catch(() => showToast('Copy failed — select the code and copy manually'));
   } else {
-    showToast('Copy not supported here — select the link and copy manually');
+    showToast('Copy not supported here — select the code and copy manually');
   }
 }
 function shareLinkRow(e){
-  const link = shareLink(e.token);
   return '<div class="flex-between" style="gap:10px;flex-wrap:wrap;padding:6px 0;border-bottom:1px solid var(--border)">' +
     '<span class="flex gap-8">'+avatar(e,24)+'<span style="font-size:12.5px;font-weight:700">'+e.name+(e.role==='admin'?' <span class="sub">(Manager — full access)</span>':' <span class="sub">('+e.department+')</span>')+'</span></span>' +
-    '<span class="flex gap-6"><input class="field mono" style="width:340px;font-size:11px" readonly value="'+escAttr(link)+'" onclick="this.select()" /><button class="btn btn-sm" onclick="copyShareLink(\''+e.token+'\')">'+icon('download',11)+' Copy</button></span>' +
+    '<span class="flex gap-6"><input class="field mono" style="width:130px;font-size:13px;text-align:center" readonly value="'+escAttr(e.token)+'" onclick="this.select()" /><button class="btn btn-sm" onclick="copyShareLink(\''+e.token+'\')">'+icon('download',11)+' Copy</button></span>' +
   '</div>';
 }
 function shareLinksCard(){
-  return '<div class="card"><div class="card-head"><span class="card-title">Personal Dashboard Links</span></div><div class="card-pad">' +
-    '<div class="sub" style="margin-bottom:10px">There is no plain, general-access URL for this app anymore — every link below ends in a code derived from that person\'s name (not the name itself) and is the only way in. Your own row, marked "Manager — full access", is the one to bookmark for yourself; it keeps the "View as" switcher so you can still preview anyone\'s dashboard. Every other person\'s link opens straight into their own locked dashboard with the switcher hidden — no field to edit, no menu to click over to a teammate\'s tasks or scores. These links only work for people who already existed when the page loaded — anyone added below under Team only exists in your own browser and won\'t have a working link elsewhere until the app is connected to a real backend.</div>' +
+  return '<div class="card"><div class="card-head"><span class="card-title">Personal Access Codes</span></div><div class="card-pad">' +
+    '<div class="sub" style="margin-bottom:10px">Everyone opens the exact same artifact link, then types their own code into the "Enter your access code" screen — a URL parameter can\'t be used here because the artifact host does not pass a page\'s query string into it. Your own code, marked "Manager — full access", is the one to keep for yourself; entering it keeps the "View as" switcher so you can still preview anyone\'s dashboard. Every other person\'s code opens straight into their own locked dashboard with the switcher hidden — no field to edit, no menu to click over to a teammate\'s tasks or scores. Codes only exist for people who already existed when the page loaded — anyone added below under Team only exists in your own browser and won\'t have a working code elsewhere until the app is connected to a real backend.</div>' +
     DB.employees.filter(e => e.active).map(e => shareLinkRow(e)).join('') +
-    '<div class="sub" style="margin-top:10px">Heads up: this app has no server, so this stops casual link-guessing but is not real security — the full dataset still loads in every browser, so someone technical could open dev tools and read past the lock. Genuine per-person access control, and links for people added after launch, both need a real backend with authentication (see Data & Integrations below).</div>' +
+    '<div class="sub" style="margin-top:10px">Heads up: this app has no server, so this stops casual guessing but is not real security — the full dataset still loads in every browser, so someone technical could open dev tools and read past the lock. Genuine per-person access control, and codes for people added after launch, both need a real backend with authentication (see Data & Integrations below).</div>' +
   '</div></div>';
 }
 
@@ -1962,20 +1983,19 @@ document.addEventListener('click', function(e){
   }
 });
 
-function getUrlUser(){
+function getSavedUser(){
   try {
-    const params = new URLSearchParams(window.location.search);
-    const u = params.get('u');
-    if (!u) return null;
-    return DB.employees.find(e => e.token === u && e.active) || null;
+    const saved = localStorage.getItem('tf_access_code');
+    if (!saved) return null;
+    return DB.employees.find(e => e.token === saved && e.active) || null;
   } catch(e){ return null; }
 }
 
 seedDemoData();
-const urlUser = getUrlUser();
-if (urlUser){
-  state.currentUserId = urlUser.id;
-  state.locked = urlUser.role !== 'admin';
+const savedUser = getSavedUser();
+if (savedUser){
+  state.currentUserId = savedUser.id;
+  state.locked = savedUser.role !== 'admin';
 } else {
   state.currentUserId = null;
   state.locked = true;
