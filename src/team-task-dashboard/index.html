@@ -349,6 +349,8 @@ const DB = (function(){
   const departments = [];
   const projects = [];
   const tasks = [];
+  const notifications = [];
+  const notificationReads = [];
   const deptRows = [];   // internal {dbId, name} — departments/projects are
   const projRows = [];   // plain TEXT columns on tasks/employees, not FKs
 
@@ -389,6 +391,14 @@ const DB = (function(){
     return { id:'C'+row.id, dbId:row.id, taskDbId:row.task_id, text:row.text, authorId: row.author_id!=null ? 'E'+row.author_id : null,
       type:row.type, at:row.at };
   }
+  function mapNotificationRow(row){
+    return { id:'N'+row.id, dbId:row.id, senderId: row.sender_id!=null ? 'E'+row.sender_id : null,
+      recipientId: row.recipient_id!=null ? 'E'+row.recipient_id : null, type:row.type, title:row.title,
+      body:row.body||'', createdAt:row.created_at };
+  }
+  function mapNotificationReadRow(row){
+    return { notificationDbId:row.notification_id, employeeId:'E'+row.employee_id, readAt:row.read_at };
+  }
 
   async function fetchAll(){
     const [empRes, deptRes, projRes, taskRes, commentRes] = await Promise.all([
@@ -410,6 +420,22 @@ const DB = (function(){
       const t = tasks.find(x => x.dbId === c.taskDbId);
       if (t) t.comments.push(c);
     });
+
+    // Notifications are a newer, optional feature — degrade gracefully
+    // if this Supabase project hasn't had the notifications migration
+    // run yet, rather than blocking the whole app from loading.
+    try {
+      const [notifRes, readRes] = await Promise.all([
+        sb.from('notifications').select('*').order('id'),
+        sb.from('notification_reads').select('*')
+      ]);
+      if (notifRes.error) throw notifRes.error;
+      if (readRes.error) throw readRes.error;
+      notifications.length = 0; notifications.push(...notifRes.data.map(mapNotificationRow));
+      notificationReads.length = 0; notificationReads.push(...readRes.data.map(mapNotificationReadRow));
+    } catch(e){
+      console.warn('Notifications feature unavailable — run notifications_migration.sql in Supabase to enable it.', e && e.message);
+    }
   }
 
   function setupRealtime(onChange){
@@ -458,6 +484,23 @@ const DB = (function(){
           const i = projRows.findIndex(r => r.dbId === payload.new.id);
           if (i>-1){ projRows[i].name = payload.new.name; projects[i] = payload.new.name; }
           else { projRows.push({dbId:payload.new.id, name:payload.new.name}); projects.push(payload.new.name); }
+        }
+        onChange();
+      })
+      .on('postgres_changes', { event:'*', schema:'public', table:'notifications' }, payload => {
+        if (payload.eventType === 'DELETE'){ const i = notifications.findIndex(n=>n.dbId===payload.old.id); if (i>-1) notifications.splice(i,1); }
+        else {
+          const mapped = mapNotificationRow(payload.new);
+          const i = notifications.findIndex(n => n.dbId === mapped.dbId);
+          if (i>-1) Object.assign(notifications[i], mapped); else notifications.push(mapped);
+        }
+        onChange();
+      })
+      .on('postgres_changes', { event:'*', schema:'public', table:'notification_reads' }, payload => {
+        if (payload.eventType === 'DELETE') return;
+        const mapped = mapNotificationReadRow(payload.new);
+        if (!notificationReads.some(r => r.notificationDbId===mapped.notificationDbId && r.employeeId===mapped.employeeId)){
+          notificationReads.push(mapped);
         }
         onChange();
       })
@@ -578,9 +621,26 @@ const DB = (function(){
     sb.from('employees').update({ department:newName }).eq('department', oldName).then(()=>{});
   }
 
-  return { employees, departments, projects, tasks,
+  async function addNotification(n){
+    const { data, error } = await sb.from('notifications').insert({
+      sender_id: rawId(n.senderId), recipient_id: rawId(n.recipientId), type: n.type||'admin', title: n.title, body: n.body||''
+    }).select().single();
+    if (error) throw error;
+    const mapped = mapNotificationRow(data);
+    notifications.push(mapped);
+    return mapped;
+  }
+  function markNotificationRead(notificationDbId, employeeId){
+    if (notificationReads.some(r => r.notificationDbId===notificationDbId && r.employeeId===employeeId)) return;
+    notificationReads.push({ notificationDbId, employeeId, readAt: new Date().toISOString() });
+    sb.from('notification_reads').upsert({ notification_id: notificationDbId, employee_id: rawId(employeeId) }, { onConflict: 'notification_id,employee_id' })
+      .then(({error}) => { if (error) console.warn('Could not save read state', error); });
+  }
+
+  return { employees, departments, projects, tasks, notifications, notificationReads,
     addEmployee, updateEmployee, addTask, updateTask, deleteTask, addComment,
     addProject, renameProject, addDepartment, renameDepartment,
+    addNotification, markNotificationRead,
     fetchAll, setupRealtime };
 })();
 
@@ -797,6 +857,14 @@ function momCompare(empId, y1, m1, y2, m2){
 }
 function trendLabel(delta){ if (Math.abs(delta) < 1.5) return 'Stable'; return delta > 0 ? 'Improved' : 'Declined'; }
 function trendClass(delta){ if (Math.abs(delta) < 1.5) return 'trend-flat'; return delta > 0 ? 'trend-up' : 'trend-down'; }
+function personalPerformanceAlert(u){
+  const now = todayDate();
+  const prev = prevMonth(now.getFullYear(), now.getMonth());
+  const curTasks = tasksForEmployeeInMonth(u.id, now.getFullYear(), now.getMonth());
+  const prevTasks = tasksForEmployeeInMonth(u.id, prev.y, prev.m);
+  if (!curTasks.length && !prevTasks.length) return null;
+  return momCompare(u.id, prev.y, prev.m, now.getFullYear(), now.getMonth());
+}
 
 function aiSummary(emp, stats, mom){
   const name = emp.name.split(' ')[0];
@@ -967,13 +1035,33 @@ function printReport(){ try { window.print(); } catch(e){ showToast('Use your br
 /* ---------- alerts (smart alerts, used by topbar + dashboard) ---------- */
 function computeAlerts(scopeTasks){
   const tISO = todayISO(), tmwISO = addDaysISO(tISO,1), weekEndISO = addDaysISO(tISO,7);
+  const soonStart = addDaysISO(tISO,2), soonEnd = addDaysISO(tISO,3);
   const dueToday = scopeTasks.filter(t => t.status!=='Completed' && t.status!=='Cancelled' && t.dueDate===tISO);
   const dueTomorrow = scopeTasks.filter(t => t.status!=='Completed' && t.status!=='Cancelled' && t.dueDate===tmwISO);
+  const dueSoon = scopeTasks.filter(t => t.status!=='Completed' && t.status!=='Cancelled' && t.dueDate>=soonStart && t.dueDate<=soonEnd);
   const overdue = scopeTasks.filter(isOverdue);
   const critical = scopeTasks.filter(t => t.priority==='Critical' && t.status!=='Completed' && t.status!=='Cancelled');
   const unassigned = scopeTasks.filter(t => !t.assignedTo && t.status!=='Cancelled');
   const pendingApproval = scopeTasks.filter(t => t.status==='Pending Approval');
-  return { dueToday, dueTomorrow, overdue, critical, unassigned, pendingApproval };
+  return { dueToday, dueTomorrow, dueSoon, overdue, critical, unassigned, pendingApproval };
+}
+
+/* ---------- admin-sent notifications ---------- */
+function notificationsForUser(u){
+  return DB.notifications.filter(n => n.recipientId === null || n.recipientId === u.id)
+    .slice().sort((a,b) => a.createdAt < b.createdAt ? 1 : -1);
+}
+function isNotificationRead(n, u){
+  return DB.notificationReads.some(r => r.notificationDbId === n.dbId && r.employeeId === u.id);
+}
+function unreadNotificationCount(u){
+  return notificationsForUser(u).filter(n => !isNotificationRead(n, u)).length;
+}
+function openNotification(id){
+  const n = DB.notifications.find(x => x.id === id);
+  if (!n) return;
+  DB.markNotificationRead(n.dbId, currentUser().id);
+  render();
 }
 
 /* =====================================================================
@@ -1034,7 +1122,7 @@ function renderShell(){
   const u = currentUser();
   if (!u) return renderAccessGate();
   const alerts = computeAlerts(isAdmin() ? DB.tasks : DB.tasks.filter(t=>t.assignedTo===u.id));
-  const notifCount = alerts.dueToday.length + alerts.overdue.length + (isAdmin()?alerts.unassigned.length + alerts.pendingApproval.length:0);
+  const notifCount = alerts.dueToday.length + alerts.overdue.length + unreadNotificationCount(u) + (isAdmin()?alerts.unassigned.length + alerts.pendingApproval.length:0);
 
   return '' +
   (state.sidebarOpen ? '<div class="sidebar-backdrop" onclick="toggleSidebar()"></div>' : '') +
@@ -1097,24 +1185,57 @@ function renderTopbar(u, alerts, notifCount){
     '<div class="topbar-spacer"></div>' +
     '<div style="position:relative">' +
       '<button class="icon-btn" onclick="toggleNotif()" title="Notifications">'+icon('bell')+(notifCount>0?'<span class="badge-dot">'+notifCount+'</span>':'')+'</button>' +
-      (state.notifOpen ? renderNotifPanel(alerts) : '') +
+      (state.notifOpen ? renderNotifPanel(alerts, u) : '') +
     '</div>' +
     '<div class="profile-chip">' + avatar(u,26) + '<div><div class="profile-name">'+u.name+'</div><div class="profile-role">'+(u.role==='admin'?'Admin · '+u.department:u.department)+'</div></div></div>' +
   '</div>';
 }
 
-function renderNotifPanel(a){
+function performanceAlertRow(u){
+  const mom = personalPerformanceAlert(u);
+  if (!mom) return '';
+  const d = mom.delta.efficiency;
+  const colorVar = Math.abs(d) < 1.5 ? '--info' : (d > 0 ? '--good' : '--bad');
+  const verb = Math.abs(d) < 1.5 ? 'holding steady at' : (d > 0 ? 'up ' + Math.round(d) + ' pts to' : 'down ' + Math.round(Math.abs(d)) + ' pts to');
+  const label = 'Your efficiency is ' + verb + ' ' + Math.round(mom.curr.stats.efficiency) + ' this month';
+  return '<div class="alert-row" onclick="state.notifOpen=false;setView(\'reports\')"><div class="alert-ico" style="background:var('+colorVar+'-soft);color:var('+colorVar+')">'+icon('chart',13)+'</div><div>'+label+'</div></div>';
+}
+function notificationItemRow(n, u){
+  const unread = !isNotificationRead(n, u);
+  const sender = n.senderId ? DB.employees.find(e => e.id === n.senderId) : null;
+  return '<div class="alert-row" style="align-items:flex-start;cursor:pointer" onclick="openNotification(\''+n.id+'\')">' +
+    '<div class="alert-ico" style="background:var(--accent-soft);color:var(--accent-strong)">'+icon('bell',13)+'</div>' +
+    '<div style="flex:1;min-width:0">' +
+      '<div style="font-size:12.5px;font-weight:'+(unread?'800':'600')+'">'+escHtml(n.title)+'</div>' +
+      (n.body ? '<div class="sub" style="margin-top:2px;white-space:normal">'+escHtml(n.body)+'</div>' : '') +
+      '<div class="sub" style="margin-top:2px">'+(sender?('From '+sender.name+' · '):'Announcement · ')+fmtDateTime(n.createdAt)+'</div>' +
+    '</div>' +
+    (unread ? '<span class="dot" style="background:var(--accent);margin-top:6px;flex:0 0 auto"></span>' : '') +
+  '</div>';
+}
+function renderNotifPanel(a, u){
   function row(list, label, colorVar, view, iconName){
     if (!list.length) return '';
     return '<div class="alert-row" onclick="goToAlert(\''+view+'\')"><div class="alert-ico" style="background:var('+colorVar+'-soft);color:var('+colorVar+')">'+icon(iconName,13)+'</div><div>'+list.length+' '+label+'</div></div>';
   }
-  const rows = row(a.overdue,'task'+(a.overdue.length===1?'':'s')+' overdue','--bad','overdue','alert') +
+  const myNotifications = notificationsForUser(u).slice(0,8);
+  const rows = (isAdmin() ? '<div style="padding:10px 14px;border-bottom:1px solid var(--border)"><button class="btn btn-sm btn-primary" style="width:100%;justify-content:center" onclick="openSendNotification()">'+icon('plus',12)+' Send Notification</button></div>' : '') +
+    row(a.overdue,'task'+(a.overdue.length===1?'':'s')+' overdue','--bad','overdue','alert') +
     row(a.dueToday,'due today','--warn','today','clock') +
     row(a.dueTomorrow,'due tomorrow','--info','tomorrow','calendar') +
+    row(a.dueSoon,'due in the next few days','--info','soon','calendar') +
     row(a.critical,'critical task'+(a.critical.length===1?'':'s')+' need attention','--bad','critical','sparkle') +
     (isAdmin() ? row(a.pendingApproval,'task'+(a.pendingApproval.length===1?'':'s')+' awaiting your approval','--gold','pendingApproval','check') : '') +
-    (isAdmin() ? row(a.unassigned,'task'+(a.unassigned.length===1?'':'s')+' unassigned','--neutral-status','unassigned','inbox') : '');
-  return '<div class="notif-panel">' + (rows || '<div class="notif-item muted">All clear — nothing needs attention.</div>') + '</div>';
+    (isAdmin() ? row(a.unassigned,'task'+(a.unassigned.length===1?'':'s')+' unassigned','--neutral-status','unassigned','inbox') : '') +
+    performanceAlertRow(u) +
+    myNotifications.map(n => notificationItemRow(n, u)).join('');
+  const hasContent = a.overdue.length || a.dueToday.length || a.dueTomorrow.length || a.dueSoon.length ||
+    a.critical.length || (isAdmin() && (a.pendingApproval.length || a.unassigned.length)) ||
+    personalPerformanceAlert(u) || myNotifications.length;
+  return '<div class="notif-panel" style="max-height:70vh;overflow-y:auto">' +
+    rows +
+    (hasContent ? '' : '<div class="notif-item muted">All clear — nothing needs attention.</div>') +
+  '</div>';
 }
 function goToAlert(kind){
   state.notifOpen = false;
@@ -1124,6 +1245,7 @@ function goToAlert(kind){
   if (kind==='today') state.taskFilters.quick = 'Today';
   if (kind==='critical') state.taskFilters.quick = 'Critical';
   if (kind==='tomorrow') state.taskFilters.quick = 'Tomorrow';
+  if (kind==='soon') state.taskFilters.quick = 'Due Soon';
   if (kind==='unassigned') state.taskFilters.employee = 'Unassigned';
   if (kind==='pendingApproval') state.taskFilters.status = 'Pending Approval';
   render();
@@ -1228,12 +1350,13 @@ function viewDashboardAdmin(){
     '<div class="page-actions"><button class="btn btn-primary" onclick="openCreateTask()">'+icon('plus',14)+' Create Task</button></div>' +
   '</div>' +
 
-  (alerts.dueToday.length+alerts.overdue.length+alerts.dueTomorrow.length+alerts.critical.length+alerts.unassigned.length+alerts.pendingApproval.length > 0 ?
+  (alerts.dueToday.length+alerts.overdue.length+alerts.dueTomorrow.length+alerts.dueSoon.length+alerts.critical.length+alerts.unassigned.length+alerts.pendingApproval.length > 0 ?
   '<div class="card card-pad" style="margin-bottom:16px"><div class="card-title-sm" style="margin-bottom:8px">Smart Alerts</div><div class="flex gap-8" style="flex-wrap:wrap">' +
     (alerts.overdue.length? '<span class="chip-filter" style="color:var(--bad);border-color:var(--bad-soft);background:var(--bad-soft)" onclick="goToAlert(\'overdue\')">'+alerts.overdue.length+' task'+(alerts.overdue.length===1?'':'s')+' overdue</span>':'') +
     (alerts.pendingApproval.length? '<span class="chip-filter" style="color:var(--gold);border-color:var(--gold-soft);background:var(--gold-soft)" onclick="goToAlert(\'pendingApproval\')">'+alerts.pendingApproval.length+' awaiting your approval</span>':'') +
     (alerts.dueToday.length? '<span class="chip-filter" style="color:var(--warn);border-color:var(--warn-soft);background:var(--warn-soft)" onclick="goToAlert(\'today\')">'+alerts.dueToday.length+' due today</span>':'') +
     (alerts.dueTomorrow.length? '<span class="chip-filter" onclick="goToAlert(\'tomorrow\')">'+alerts.dueTomorrow.length+' due tomorrow</span>':'') +
+    (alerts.dueSoon.length? '<span class="chip-filter" onclick="goToAlert(\'soon\')">'+alerts.dueSoon.length+' due in the next few days</span>':'') +
     (alerts.critical.length? '<span class="chip-filter" style="color:var(--bad);border-color:var(--bad-soft);background:var(--bad-soft)" onclick="goToAlert(\'critical\')">'+alerts.critical.length+' critical task'+(alerts.critical.length===1?'':'s')+' need attention</span>':'') +
     (alerts.unassigned.length? '<span class="chip-filter" onclick="goToAlert(\'unassigned\')">'+alerts.unassigned.length+' unassigned</span>':'') +
   '</div></div>' : '') +
@@ -1391,6 +1514,8 @@ function filterTasks(base, scope){
   const f = state.taskFilters, tISO = todayISO();
   let list = base.slice();
   if (f.quick === 'Today') list = list.filter(t => t.dueDate===tISO && t.status!=='Cancelled');
+  else if (f.quick === 'Tomorrow') list = list.filter(t => t.dueDate===addDaysISO(tISO,1) && t.status!=='Cancelled');
+  else if (f.quick === 'Due Soon') list = list.filter(t => t.dueDate>=addDaysISO(tISO,2) && t.dueDate<=addDaysISO(tISO,3) && t.status!=='Cancelled');
   else if (f.quick === 'This Week') list = list.filter(t => t.dueDate>=tISO && t.dueDate<=addDaysISO(tISO,7) && t.status!=='Cancelled');
   else if (f.quick === 'Overdue') list = list.filter(isOverdue);
   else if (f.quick === 'High Priority') list = list.filter(t => t.priority==='High');
@@ -1765,7 +1890,39 @@ function renderModal(){
   if (m.type === 'taskDetail') return renderTaskDetailModal(m.taskId);
   if (m.type === 'employeeForm') return renderEmployeeFormModal(m.empId);
   if (m.type === 'employeeDetail') return renderEmployeeDetailModal(m.empId);
+  if (m.type === 'sendNotification') return renderSendNotificationModal();
   return '';
+}
+
+/* ---- Send Notification (admin) ---- */
+function openSendNotification(){ state.notifOpen = false; state.modal = { type:'sendNotification' }; render(); }
+function renderSendNotificationModal(){
+  const recipients = DB.employees.filter(e => e.active && e.id !== currentUser().id);
+  return '<div class="modal-overlay" onclick="if(event.target===this) closeModal()"><div class="modal">' +
+    '<div class="modal-head"><h3>Send Notification</h3><span class="close-x" onclick="closeModal()">'+icon('x',15)+'</span></div>' +
+    '<div class="modal-body">' +
+      '<div class="field-row single"><div class="field-group"><label>Send To</label><select id="sn-recipient" class="field">' +
+        '<option value="">Everyone</option>' +
+        recipients.map(e => '<option value="'+e.id+'">'+e.name+'</option>').join('') +
+      '</select></div></div>' +
+      '<div class="field-row single"><div class="field-group"><label>Title</label><input id="sn-title" class="field" placeholder="e.g. Office closed Friday" /></div></div>' +
+      '<div class="field-row single"><div class="field-group"><label>Message</label><textarea id="sn-body" class="field" rows="4" placeholder="Write your message (optional)"></textarea></div></div>' +
+    '</div>' +
+    '<div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="submitSendNotification()">'+icon('bell',13)+' Send</button></div>' +
+  '</div></div>';
+}
+async function submitSendNotification(){
+  const title = document.getElementById('sn-title').value.trim();
+  const body = document.getElementById('sn-body').value.trim();
+  const recipient = document.getElementById('sn-recipient').value || null;
+  if (!title){ showToast('Title is required'); return; }
+  try {
+    await DB.addNotification({ senderId: currentUser().id, recipientId: recipient, type:'admin', title, body });
+    showToast('Notification sent');
+    closeModal();
+  } catch(e){
+    showToast('Could not send the notification — check your connection and try again');
+  }
 }
 
 /* ---- Task Form (Create / Edit) ---- */
