@@ -780,7 +780,7 @@ function computeStats(taskList){
   const taskPoints = completed.reduce((s,t) => s + t.level, 0);
   const maxPoints = completed.length * 4;
   const difficultyScore = completed.length > 0 ? (taskPoints / maxPoints * 100) : 0;
-  const deadlineDiscipline = activeAssigned > 0 ? Math.max(0, 100 - (overdue.length / activeAssigned * 100)) : 100;
+  const deadlineDiscipline = activeAssigned > 0 ? Math.max(0, 100 - (overdue.length / activeAssigned * 100)) : 0;
 
   const weekly = [0,0,0,0,0];
   completed.forEach(t => {
