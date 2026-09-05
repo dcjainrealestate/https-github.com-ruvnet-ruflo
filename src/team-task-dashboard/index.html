@@ -284,6 +284,32 @@ const DB = (function(){
   const projects = ["Keystone Seasons","Keystone Elevate","Tonino Lamborghini","Digital Marketing","Meta Ads","Google Ads","CRM","Website","Events","Other"];
   const tasks = [];
 
+  // Browser-local persistence. There is still no shared backend — this
+  // only survives a refresh in THIS browser, on THIS device — but it
+  // stops the single most confusing thing about a demo-data app: every
+  // task you create disappearing the moment the page reloads.
+  const STORAGE_KEY = 'tf_data_v1';
+  function persist(){
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ employees, departments, projects, tasks, seq })); } catch(e){}
+  }
+  function loadFromStorage(){
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return false;
+      const data = JSON.parse(raw);
+      if (!data || !Array.isArray(data.employees) || !data.employees.length || !Array.isArray(data.tasks)) return false;
+      employees.length = 0; employees.push(...data.employees);
+      departments.length = 0; departments.push(...(Array.isArray(data.departments) ? data.departments : departments));
+      projects.length = 0; projects.push(...(Array.isArray(data.projects) ? data.projects : projects));
+      tasks.length = 0; tasks.push(...data.tasks);
+      if (data.seq) Object.assign(seq, data.seq);
+      return true;
+    } catch(e){ return false; }
+  }
+  function resetToDemoData(){
+    try { localStorage.removeItem(STORAGE_KEY); } catch(e){}
+  }
+
   // Deterministic, non-guessable access code, typed into the app rather
   // than carried in the URL — the artifact host does not forward a
   // page's query string into the sandboxed frame it renders, so a
@@ -313,11 +339,13 @@ const DB = (function(){
     e.active = e.active !== false;
     e.token = uniqueToken(e.name);
     employees.push(e);
+    persist();
     return e;
   }
   function updateEmployee(id, patch){
     const e = employees.find(x => x.id === id);
     if (e) Object.assign(e, patch);
+    persist();
     return e;
   }
   function addTask(t){
@@ -325,31 +353,36 @@ const DB = (function(){
     t.comments = t.comments || [];
     if (t.progress == null) t.progress = t.status === 'Completed' ? 100 : 0;
     tasks.push(t);
+    persist();
     return t;
   }
   function updateTask(id, patch){
     const t = tasks.find(x => x.id === id);
     if (t) Object.assign(t, patch);
+    persist();
     return t;
   }
   function deleteTask(id){
     const i = tasks.findIndex(x => x.id === id);
     if (i > -1) tasks.splice(i,1);
+    persist();
   }
   function addComment(taskId, text, authorId, type){
     const t = tasks.find(x => x.id === taskId);
     if (!t) return;
     t.comments.push({ id:'C'+(++seq.comment), text, authorId, type: type || 'comment', at: new Date().toISOString() });
+    persist();
   }
-  function addProject(name){ name = (name||'').trim(); if (name && !projects.includes(name)) projects.push(name); }
+  function addProject(name){ name = (name||'').trim(); if (name && !projects.includes(name)){ projects.push(name); persist(); } }
   function renameProject(oldName, newName){
     newName = (newName||'').trim();
     if (!newName) return;
     const i = projects.indexOf(oldName);
     if (i > -1) projects[i] = newName;
     tasks.forEach(t => { if (t.project === oldName) t.project = newName; });
+    persist();
   }
-  function addDepartment(name){ name = (name||'').trim(); if (name && !departments.includes(name)) departments.push(name); }
+  function addDepartment(name){ name = (name||'').trim(); if (name && !departments.includes(name)){ departments.push(name); persist(); } }
   function renameDepartment(oldName, newName){
     newName = (newName||'').trim();
     if (!newName) return;
@@ -357,11 +390,13 @@ const DB = (function(){
     if (i > -1) departments[i] = newName;
     tasks.forEach(t => { if (t.department === oldName) t.department = newName; });
     employees.forEach(e => { if (e.department === oldName) e.department = newName; });
+    persist();
   }
 
   return { employees, departments, projects, tasks,
     addEmployee, updateEmployee, addTask, updateTask, deleteTask, addComment,
-    addProject, renameProject, addDepartment, renameDepartment };
+    addProject, renameProject, addDepartment, renameDepartment,
+    loadFromStorage, resetToDemoData };
 })();
 
 /* =====================================================================
@@ -1628,8 +1663,19 @@ function viewSettings(){
     '</div>' +
     '<div class="card card-pad" style="margin-top:16px">' +
       '<div class="card-title-sm" style="margin-bottom:6px">Data & Integrations</div>' +
-      '<div class="sub">This workspace currently runs on in-memory demo data that persists for the duration of this session (see the <span class="mono">DB</span> object at the top of the script). It is deliberately kept separate from every view, so it can later be swapped for Supabase, Firebase, Airtable or PostgreSQL without changing any screen in this app.</div>' +
+      '<div class="sub" style="margin-bottom:10px">This workspace saves its data to this browser only (see the <span class="mono">DB</span> object at the top of the script) — it survives a refresh or closing the tab on this device, but it is not shared with other browsers or devices, and clearing this browser\'s site data will erase it. It is deliberately kept separate from every view, so it can later be swapped for Supabase, Firebase, Airtable or PostgreSQL — a real shared database — without changing any screen in this app.</div>' +
+      (state.confirmResetDemo ?
+        ('<span style="color:var(--bad);font-weight:700;font-size:12.5px;margin-right:8px">Erase all saved changes in this browser and reload the original demo data?</span><button class="btn btn-sm btn-danger" onclick="confirmResetDemoAction()">Yes, reset</button><button class="btn btn-sm btn-ghost" onclick="cancelResetDemo()">Cancel</button>')
+      :
+        ('<button class="btn btn-sm btn-danger" onclick="askResetDemo()">Reset to Demo Data</button>')
+      ) +
     '</div>';
+}
+function askResetDemo(){ state.confirmResetDemo = true; render(); }
+function cancelResetDemo(){ state.confirmResetDemo = false; render(); }
+function confirmResetDemoAction(){
+  DB.resetToDemoData();
+  location.reload();
 }
 
 /* =====================================================================
@@ -2096,7 +2142,7 @@ function getSavedUser(){
   } catch(e){ return null; }
 }
 
-seedDemoData();
+if (!DB.loadFromStorage()) seedDemoData();
 const savedUser = getSavedUser();
 if (savedUser){
   state.currentUserId = savedUser.id;
