@@ -783,10 +783,7 @@ function toggleNotif(){ state.notifOpen = !state.notifOpen; render(); }
 function onSearchInput(v){ state.search = v; render(); }
 function closeModal(){ state.modal = null; state.taskDraft = null; state.employeeDraft = null; render(); }
 
-function csvDownload(filename, headers, rows){
-  const esc = v => { const s = (v==null?'':String(v)); return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s; };
-  const lines = [headers.map(esc).join(',')].concat(rows.map(r => r.map(esc).join(',')));
-  const csv = lines.join('\r\n');
+function csvDownloadRaw(filename, csv){
   try {
     const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
     const url = URL.createObjectURL(blob);
@@ -796,6 +793,33 @@ function csvDownload(filename, headers, rows){
     setTimeout(() => URL.revokeObjectURL(url), 1000);
     showToast('Exported ' + filename);
   } catch(e){ showToast('Export failed in this environment'); }
+}
+function csvDownload(filename, headers, rows){
+  const esc = v => { const s = (v==null?'':String(v)); return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s; };
+  const lines = [headers.map(esc).join(',')].concat(rows.map(r => r.map(esc).join(',')));
+  const csv = lines.join('\r\n');
+
+  // The artifact viewer blocks plain <a download>/blob links outright — a
+  // generated file can only reach the viewer through window.claude.downloads.
+  // Fall back to the raw blob link for contexts without that capability
+  // (e.g. opening this file directly rather than through the artifact viewer).
+  if (window.claude && window.claude.downloads && window.claude.downloads.save){
+    window.claude.downloads.save({ filename, data: csv }).then(() => {
+      showToast('Exported ' + filename);
+    }).catch(err => {
+      const code = err && err.code;
+      if (code === 'extension_not_enabled'){
+        const txtName = filename.replace(/\.csv$/i, '.txt');
+        window.claude.downloads.save({ filename: txtName, data: csv })
+          .then(() => showToast('Exported ' + txtName + ' — open it in Sheets/Excel as CSV'))
+          .catch(() => showToast('Export isn\'t available in this view'));
+      } else if (code !== 'declined'){
+        showToast('Export isn\'t available in this view');
+      }
+    });
+    return;
+  }
+  csvDownloadRaw(filename, csv);
 }
 function printReport(){ try { window.print(); } catch(e){ showToast('Use your browser\'s print shortcut (Ctrl/Cmd+P)'); } }
 
