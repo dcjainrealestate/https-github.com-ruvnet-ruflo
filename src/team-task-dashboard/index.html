@@ -378,7 +378,7 @@ const DB = (function(){
 
   function mapEmployeeRow(row){
     return { id:'E'+row.id, dbId:row.id, name:row.name, role:row.role, department:row.department,
-      title:row.title||'', joinDate:row.join_date, active:row.active, token:row.token };
+      title:row.title||'', joinDate:row.join_date, active:row.active, token:row.token, email:row.email||'' };
   }
   function mapTaskRow(row){
     return { id:'T'+String(row.id).padStart(3,'0'), dbId:row.id, name:row.name, description:row.description||'',
@@ -511,7 +511,7 @@ const DB = (function(){
     const token = uniqueToken(e.name);
     const { data, error } = await sb.from('employees').insert({
       name:e.name, role:e.role, department:e.department, title:e.title||null,
-      join_date:e.joinDate, active:e.active!==false, token
+      join_date:e.joinDate, active:e.active!==false, token, email:e.email||null
     }).select().single();
     if (error) throw error;
     const mapped = mapEmployeeRow(data);
@@ -524,7 +524,7 @@ const DB = (function(){
     Object.assign(e, patch);
     sb.from('employees').update({
       name:e.name, role:e.role, department:e.department, title:e.title||null,
-      join_date:e.joinDate, active:e.active
+      join_date:e.joinDate, active:e.active, email:e.email||null
     }).eq('id', e.dbId).then(({error}) => { if (error) showToast('Could not save that change — check your connection'); });
     return e;
   }
@@ -915,6 +915,12 @@ const state = {
   search: '',
   notifOpen: false,
   sidebarOpen: false,
+  authMode: 'code',
+  emailAttempt: '',
+  emailOtpSent: false,
+  emailSending: false,
+  emailVerifying: false,
+  emailError: null,
   modal: null,
   taskDraft: null,
   employeeDraft: null,
@@ -1102,22 +1108,88 @@ function signOut(){
   state.currentUserId = null;
   state.accessAttempt = '';
   state.accessError = false;
+  state.authMode = 'code';
+  state.emailAttempt = '';
+  state.emailOtpSent = false;
+  state.emailError = null;
   resetSessionState();
   try { localStorage.removeItem('tf_access_code'); } catch(e){}
+  sb.auth.signOut().catch(function(){});
   render();
 }
+function switchAuthMode(mode){ state.authMode = mode; state.emailError = null; render(); }
+async function requestEmailOtp(){
+  const email = (document.getElementById('email-input').value || '').trim().toLowerCase();
+  state.emailAttempt = email;
+  if (!email){ state.emailError = 'Enter your email address.'; render(); return; }
+  const emp = DB.employees.find(e => e.active && e.email && e.email.toLowerCase() === email);
+  if (!emp){ state.emailError = "That email isn't on file — check with your manager."; render(); return; }
+  state.emailError = null;
+  state.emailSending = true;
+  render();
+  const { error } = await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
+  state.emailSending = false;
+  if (error){ state.emailError = 'Could not send the code — check your connection and try again.'; render(); return; }
+  state.emailOtpSent = true;
+  render();
+}
+async function verifyEmailOtp(){
+  const email = state.emailAttempt;
+  const token = (document.getElementById('email-otp-input').value || '').trim();
+  if (!token){ state.emailError = 'Enter the code from your email.'; render(); return; }
+  state.emailVerifying = true;
+  render();
+  const { error } = await sb.auth.verifyOtp({ email, token, type: 'email' });
+  state.emailVerifying = false;
+  if (error){ state.emailError = 'That code is incorrect or expired — try again.'; render(); return; }
+  const emp = DB.employees.find(e => e.active && e.email && e.email.toLowerCase() === email);
+  if (!emp){ state.emailError = "That email isn't linked to an employee — contact your manager."; render(); return; }
+  state.currentUserId = emp.id;
+  state.locked = emp.role !== 'admin';
+  state.emailError = null;
+  resetSessionState();
+  try { localStorage.setItem('tf_access_code', emp.token); } catch(e){}
+  render();
+}
+function useAnotherEmail(){ state.emailOtpSent = false; state.emailError = null; render(); }
 function renderAccessGate(){
+  const mode = state.authMode || 'code';
   return '<div style="min-height:100vh;width:100%;display:flex;align-items:center;justify-content:center;padding:24px;background:var(--bg)">' +
     '<div class="card card-pad" style="max-width:380px;width:100%;text-align:center">' +
       '<img src="assets/logo.png" alt="DC Jain Real Estate" style="max-width:220px;width:100%;height:auto;margin:0 auto 16px;display:block" />' +
       '<div style="font-weight:800;font-size:15px;letter-spacing:.01em;margin-bottom:14px">DC JAIN REAL ESTATE TASK MANAGEMENT SYSTEM</div>' +
-      '<div style="font-weight:800;font-size:16px;margin-bottom:6px">Enter your access code</div>' +
-      '<div class="sub" style="margin-bottom:16px">Your manager gave you a short code — type it below to open your own dashboard. Managers use their own code the same way.</div>' +
-      '<input id="access-code-input" class="field" style="width:100%;text-align:center;font-size:15px;letter-spacing:.04em;padding:10px" placeholder="e.g. 7m9g-v51l" value="'+escAttr(state.accessAttempt||'')+'" onkeydown="if(event.key===\'Enter\') submitAccessCode()" />' +
-      (state.accessError ? '<div style="color:var(--bad);font-size:12px;font-weight:700;margin-top:8px">Code not recognized — check with your manager and try again.</div>' : '') +
-      '<button class="btn btn-primary" style="width:100%;margin-top:12px;justify-content:center" onclick="submitAccessCode()">Continue</button>' +
+      '<div class="flex gap-8" style="justify-content:center;margin-bottom:16px">' +
+        '<span class="chip-filter '+(mode==='code'?'active':'')+'" onclick="switchAuthMode(\'code\')">Access Code</span>' +
+        '<span class="chip-filter '+(mode==='email'?'active':'')+'" onclick="switchAuthMode(\'email\')">Email</span>' +
+      '</div>' +
+      (mode === 'code' ? renderCodeGateBody() : renderEmailGateBody()) +
     '</div>' +
   '</div>';
+}
+function renderCodeGateBody(){
+  return '' +
+    '<div style="font-weight:800;font-size:16px;margin-bottom:6px">Enter your access code</div>' +
+    '<div class="sub" style="margin-bottom:16px">Your manager gave you a short code — type it below to open your own dashboard. Managers use their own code the same way.</div>' +
+    '<input id="access-code-input" class="field" style="width:100%;text-align:center;font-size:15px;letter-spacing:.04em;padding:10px" placeholder="e.g. 7m9g-v51l" value="'+escAttr(state.accessAttempt||'')+'" onkeydown="if(event.key===\'Enter\') submitAccessCode()" />' +
+    (state.accessError ? '<div style="color:var(--bad);font-size:12px;font-weight:700;margin-top:8px">Code not recognized — check with your manager and try again.</div>' : '') +
+    '<button class="btn btn-primary" style="width:100%;margin-top:12px;justify-content:center" onclick="submitAccessCode()">Continue</button>';
+}
+function renderEmailGateBody(){
+  if (!state.emailOtpSent){
+    return '' +
+      '<div style="font-weight:800;font-size:16px;margin-bottom:6px">Sign in with email</div>' +
+      '<div class="sub" style="margin-bottom:16px">Enter the email address on file with your manager — we\'ll send you a one-time code.</div>' +
+      '<input id="email-input" type="email" autocomplete="email" class="field" style="width:100%;text-align:center;font-size:15px;padding:10px" placeholder="you@gmail.com" value="'+escAttr(state.emailAttempt||'')+'" onkeydown="if(event.key===\'Enter\') requestEmailOtp()" '+(state.emailSending?'disabled':'')+' />' +
+      (state.emailError ? '<div style="color:var(--bad);font-size:12px;font-weight:700;margin-top:8px">'+escHtml(state.emailError)+'</div>' : '') +
+      '<button class="btn btn-primary" style="width:100%;margin-top:12px;justify-content:center" onclick="requestEmailOtp()" '+(state.emailSending?'disabled':'')+'>'+(state.emailSending?'Sending…':'Send Code')+'</button>';
+  }
+  return '' +
+    '<div style="font-weight:800;font-size:16px;margin-bottom:6px">Enter the code we emailed you</div>' +
+    '<div class="sub" style="margin-bottom:16px">A 6-digit code was sent to <b>'+escHtml(state.emailAttempt)+'</b>. Check your inbox (and spam folder).</div>' +
+    '<input id="email-otp-input" class="field" style="width:100%;text-align:center;font-size:18px;letter-spacing:.2em;padding:10px" placeholder="123456" inputmode="numeric" maxlength="6" onkeydown="if(event.key===\'Enter\') verifyEmailOtp()" '+(state.emailVerifying?'disabled':'')+' />' +
+    (state.emailError ? '<div style="color:var(--bad);font-size:12px;font-weight:700;margin-top:8px">'+escHtml(state.emailError)+'</div>' : '') +
+    '<button class="btn btn-primary" style="width:100%;margin-top:12px;justify-content:center" onclick="verifyEmailOtp()" '+(state.emailVerifying?'disabled':'')+'>'+(state.emailVerifying?'Verifying…':'Verify & Continue')+'</button>' +
+    '<button class="btn btn-ghost btn-sm" style="width:100%;margin-top:8px;justify-content:center" onclick="useAnotherEmail()">Use a different email</button>';
 }
 function renderShell(){
   const u = currentUser();
@@ -2304,6 +2376,7 @@ function renderEmployeeFormModal(empId){
     '<div class="modal-body">' +
       '<div class="field-row single"><div class="field-group"><label>Full Name</label><input id="ef-name" class="field" value="'+escAttr(e?e.name:'')+'" placeholder="e.g. Neha Kulkarni" /></div></div>' +
       '<div class="field-row single"><div class="field-group"><label>Title</label><input id="ef-title" class="field" value="'+escAttr(e?e.title:'')+'" placeholder="e.g. Creative Designer" /></div></div>' +
+      '<div class="field-row single"><div class="field-group"><label>Email</label><input id="ef-email" type="email" class="field" value="'+escAttr(e?e.email:'')+'" placeholder="e.g. name@gmail.com" /><div class="sub" style="margin-top:4px">Optional — lets them sign in with an emailed one-time code instead of the access code.</div></div></div>' +
       '<div class="field-row">' +
         '<div class="field-group"><label>Department</label><select id="ef-dept">'+DB.departments.map(dpt=>'<option '+((e?e.department:DB.departments[0])===dpt?'selected':'')+'>'+dpt+'</option>').join('')+'</select></div>' +
         '<div class="field-group"><label>Role</label><select id="ef-role"><option value="member" '+(!e||e.role==='member'?'selected':'')+'>Team Member</option><option value="admin" '+(e&&e.role==='admin'?'selected':'')+'>Admin / Manager</option></select></div>' +
@@ -2317,15 +2390,16 @@ async function saveEmployeeForm(id){
   const name = document.getElementById('ef-name').value.trim();
   if (!name){ showToast('Name is required'); return; }
   const title = document.getElementById('ef-title').value.trim();
+  const email = document.getElementById('ef-email').value.trim().toLowerCase();
   const department = document.getElementById('ef-dept').value;
   const role = document.getElementById('ef-role').value;
   const joinDate = document.getElementById('ef-join').value;
   if (id){
-    DB.updateEmployee(id, {name, title, department, role, joinDate});
+    DB.updateEmployee(id, {name, title, email, department, role, joinDate});
     showToast('Employee updated');
   } else {
     try {
-      await DB.addEmployee({name, title, department, role, joinDate, active:true});
+      await DB.addEmployee({name, title, email, department, role, joinDate, active:true});
       showToast('Employee added');
     } catch(e){ showToast('Could not add the employee — check your connection and try again'); return; }
   }
