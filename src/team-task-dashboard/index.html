@@ -265,10 +265,23 @@
   }
 </style>
 
-<div id="app"></div>
+<div id="app"><div style="min-height:100vh;display:flex;align-items:center;justify-content:center;color:#7C857F;font:14px -apple-system,sans-serif">Loading Taskframe…</div></div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script>
 "use strict";
+
+/* =====================================================================
+   0. BACKEND CONFIG
+   Real shared Postgres database via Supabase. The anon/public key below
+   is safe to ship in client code by design — it identifies the project,
+   it does not grant it. Access to data is governed by the Row Level
+   Security policies on the database itself (see schema.sql), not by
+   keeping this key secret.
+   ===================================================================== */
+const SUPABASE_URL = 'https://iubvxxihxqesabwflxsq.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_sZr74GUFEBqYaAJi8ar_fg_FtiYhsHz';
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 /* =====================================================================
    1. DATA LAYER
@@ -278,45 +291,23 @@
    functions in section 2.
    ===================================================================== */
 const DB = (function(){
-  let seq = {task:0, comment:0, emp:0};
+  // Local cache mirroring the real Supabase tables. Every view in this
+  // app reads these plain arrays synchronously, same as before — this
+  // module's job is to keep them in sync with the shared database via
+  // (a) an initial fetch, (b) optimistic local writes on every mutation,
+  // and (c) a realtime subscription that merges in changes made by
+  // anyone else, on any other device, without a manual refresh.
   const employees = [];
-  const departments = ["Digital Marketing","Sales","CRM","Creative","Operations","Management","Accounts","Admin"];
-  const projects = ["Keystone Seasons","Keystone Elevate","Tonino Lamborghini","Digital Marketing","Meta Ads","Google Ads","CRM","Website","Events","Other"];
+  const departments = [];
+  const projects = [];
   const tasks = [];
+  const deptRows = [];   // internal {dbId, name} — departments/projects are
+  const projRows = [];   // plain TEXT columns on tasks/employees, not FKs
 
-  // Browser-local persistence. There is still no shared backend — this
-  // only survives a refresh in THIS browser, on THIS device — but it
-  // stops the single most confusing thing about a demo-data app: every
-  // task you create disappearing the moment the page reloads.
-  const STORAGE_KEY = 'tf_data_v1';
-  function persist(){
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ employees, departments, projects, tasks, seq })); } catch(e){}
-  }
-  function loadFromStorage(){
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return false;
-      const data = JSON.parse(raw);
-      if (!data || !Array.isArray(data.employees) || !data.employees.length || !Array.isArray(data.tasks)) return false;
-      employees.length = 0; employees.push(...data.employees);
-      departments.length = 0; departments.push(...(Array.isArray(data.departments) ? data.departments : departments));
-      projects.length = 0; projects.push(...(Array.isArray(data.projects) ? data.projects : projects));
-      tasks.length = 0; tasks.push(...data.tasks);
-      if (data.seq) Object.assign(seq, data.seq);
-      return true;
-    } catch(e){ return false; }
-  }
-  function resetToDemoData(){
-    try { localStorage.removeItem(STORAGE_KEY); } catch(e){}
-  }
+  function rawId(prefixedId){ return prefixedId == null ? null : Number(String(prefixedId).slice(1)); }
 
-  // Deterministic, non-guessable access code, typed into the app rather
-  // than carried in the URL — the artifact host does not forward a
-  // page's query string into the sandboxed frame it renders, so a
-  // ?u=... link never actually reaches this script. Hashing the name
-  // (with a fixed salt) gives a short code that looks unrelated to the
-  // name, is reproduced identically every time this same code runs
-  // (so it works on any device), and is short enough to type by hand.
+  // Deterministic, human-typeable access code for newly-added employees
+  // (existing employees already have a token seeded into the database).
   function hash32(str){
     let h = 2166136261 >>> 0;
     for (let i=0;i<str.length;i++){ h ^= str.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
@@ -334,69 +325,215 @@ const DB = (function(){
     while (employees.some(e => e.token === candidate)){ n++; candidate = deterministicToken(name + '::' + n); }
     return candidate;
   }
-  function addEmployee(e){
-    e.id = 'E' + (++seq.emp);
-    e.active = e.active !== false;
-    e.token = uniqueToken(e.name);
-    employees.push(e);
-    persist();
-    return e;
+
+  function mapEmployeeRow(row){
+    return { id:'E'+row.id, dbId:row.id, name:row.name, role:row.role, department:row.department,
+      title:row.title||'', joinDate:row.join_date, active:row.active, token:row.token };
+  }
+  function mapTaskRow(row){
+    return { id:'T'+String(row.id).padStart(3,'0'), dbId:row.id, name:row.name, description:row.description||'',
+      assignedTo: row.assigned_to!=null ? 'E'+row.assigned_to : null, assignedBy: row.assigned_by!=null ? 'E'+row.assigned_by : null,
+      department:row.department, project:row.project, createdDate:row.created_date, startDate:row.start_date, dueDate:row.due_date,
+      priority:row.priority, level:row.level, status:row.status, estimatedHours:row.estimated_hours, actualHours:row.actual_hours,
+      completionDate:row.completion_date, progress:row.progress, completionNotes:row.completion_notes||'', comments:[] };
+  }
+  function mapCommentRow(row){
+    return { id:'C'+row.id, dbId:row.id, taskDbId:row.task_id, text:row.text, authorId: row.author_id!=null ? 'E'+row.author_id : null,
+      type:row.type, at:row.at };
+  }
+
+  async function fetchAll(){
+    const [empRes, deptRes, projRes, taskRes, commentRes] = await Promise.all([
+      sb.from('employees').select('*').order('id'),
+      sb.from('departments').select('*').order('id'),
+      sb.from('projects').select('*').order('id'),
+      sb.from('tasks').select('*').order('id'),
+      sb.from('task_comments').select('*').order('id')
+    ]);
+    for (const r of [empRes, deptRes, projRes, taskRes, commentRes]) if (r.error) throw r.error;
+
+    employees.length = 0; employees.push(...empRes.data.map(mapEmployeeRow));
+    deptRows.length = 0; deptRows.push(...deptRes.data.map(r => ({dbId:r.id, name:r.name})));
+    departments.length = 0; departments.push(...deptRows.map(r => r.name));
+    projRows.length = 0; projRows.push(...projRes.data.map(r => ({dbId:r.id, name:r.name})));
+    projects.length = 0; projects.push(...projRows.map(r => r.name));
+    tasks.length = 0; tasks.push(...taskRes.data.map(mapTaskRow));
+    commentRes.data.map(mapCommentRow).forEach(c => {
+      const t = tasks.find(x => x.dbId === c.taskDbId);
+      if (t) t.comments.push(c);
+    });
+  }
+
+  function setupRealtime(onChange){
+    sb.channel('taskframe-db-changes')
+      .on('postgres_changes', { event:'*', schema:'public', table:'employees' }, payload => {
+        if (payload.eventType === 'DELETE'){ const i = employees.findIndex(e=>e.dbId===payload.old.id); if (i>-1) employees.splice(i,1); }
+        else {
+          const mapped = mapEmployeeRow(payload.new);
+          const i = employees.findIndex(e => e.dbId === mapped.dbId);
+          if (i>-1) Object.assign(employees[i], mapped); else employees.push(mapped);
+        }
+        onChange();
+      })
+      .on('postgres_changes', { event:'*', schema:'public', table:'tasks' }, payload => {
+        if (payload.eventType === 'DELETE'){ const i = tasks.findIndex(t=>t.dbId===payload.old.id); if (i>-1) tasks.splice(i,1); }
+        else {
+          const mapped = mapTaskRow(payload.new);
+          const existing = tasks.find(t => t.dbId === mapped.dbId);
+          if (existing){ mapped.comments = existing.comments; Object.assign(existing, mapped); } else { tasks.push(mapped); }
+        }
+        onChange();
+      })
+      .on('postgres_changes', { event:'*', schema:'public', table:'task_comments' }, payload => {
+        if (payload.eventType === 'DELETE'){
+          const t = tasks.find(x => x.comments.some(c => c.dbId === payload.old.id));
+          if (t){ const i = t.comments.findIndex(c=>c.dbId===payload.old.id); if (i>-1) t.comments.splice(i,1); }
+        } else {
+          const mapped = mapCommentRow(payload.new);
+          const t = tasks.find(x => x.dbId === mapped.taskDbId);
+          if (t){ const i = t.comments.findIndex(c=>c.dbId===mapped.dbId); if (i>-1) t.comments[i]=mapped; else t.comments.push(mapped); }
+        }
+        onChange();
+      })
+      .on('postgres_changes', { event:'*', schema:'public', table:'departments' }, payload => {
+        if (payload.eventType === 'DELETE'){ const i = deptRows.findIndex(r=>r.dbId===payload.old.id); if (i>-1){ deptRows.splice(i,1); departments.splice(i,1); } }
+        else {
+          const i = deptRows.findIndex(r => r.dbId === payload.new.id);
+          if (i>-1){ deptRows[i].name = payload.new.name; departments[i] = payload.new.name; }
+          else { deptRows.push({dbId:payload.new.id, name:payload.new.name}); departments.push(payload.new.name); }
+        }
+        onChange();
+      })
+      .on('postgres_changes', { event:'*', schema:'public', table:'projects' }, payload => {
+        if (payload.eventType === 'DELETE'){ const i = projRows.findIndex(r=>r.dbId===payload.old.id); if (i>-1){ projRows.splice(i,1); projects.splice(i,1); } }
+        else {
+          const i = projRows.findIndex(r => r.dbId === payload.new.id);
+          if (i>-1){ projRows[i].name = payload.new.name; projects[i] = payload.new.name; }
+          else { projRows.push({dbId:payload.new.id, name:payload.new.name}); projects.push(payload.new.name); }
+        }
+        onChange();
+      })
+      .subscribe();
+  }
+
+  async function addEmployee(e){
+    const token = uniqueToken(e.name);
+    const { data, error } = await sb.from('employees').insert({
+      name:e.name, role:e.role, department:e.department, title:e.title||null,
+      join_date:e.joinDate, active:e.active!==false, token
+    }).select().single();
+    if (error) throw error;
+    const mapped = mapEmployeeRow(data);
+    employees.push(mapped);
+    return mapped;
   }
   function updateEmployee(id, patch){
     const e = employees.find(x => x.id === id);
-    if (e) Object.assign(e, patch);
-    persist();
+    if (!e) return null;
+    Object.assign(e, patch);
+    sb.from('employees').update({
+      name:e.name, role:e.role, department:e.department, title:e.title||null,
+      join_date:e.joinDate, active:e.active
+    }).eq('id', e.dbId).then(({error}) => { if (error) showToast('Could not save that change — check your connection'); });
     return e;
   }
-  function addTask(t){
-    t.id = 'T' + String(++seq.task).padStart(3,'0');
-    t.comments = t.comments || [];
-    if (t.progress == null) t.progress = t.status === 'Completed' ? 100 : 0;
-    tasks.push(t);
-    persist();
-    return t;
+  async function addTask(t){
+    const { data, error } = await sb.from('tasks').insert({
+      name:t.name, description:t.description||'', assigned_to:rawId(t.assignedTo), assigned_by:rawId(t.assignedBy),
+      department:t.department, project:t.project, created_date:t.createdDate, start_date:t.startDate, due_date:t.dueDate,
+      priority:t.priority, level:t.level, status:t.status, estimated_hours:t.estimatedHours, actual_hours:t.actualHours,
+      completion_date:t.completionDate, progress: t.progress != null ? t.progress : (t.status==='Completed'?100:0),
+      completion_notes:t.completionNotes||''
+    }).select().single();
+    if (error) throw error;
+    const mapped = mapTaskRow(data);
+    tasks.push(mapped);
+    return mapped;
   }
   function updateTask(id, patch){
     const t = tasks.find(x => x.id === id);
-    if (t) Object.assign(t, patch);
-    persist();
+    if (!t) return null;
+    Object.assign(t, patch);
+    sb.from('tasks').update({
+      name:t.name, description:t.description||'', assigned_to:rawId(t.assignedTo), assigned_by:rawId(t.assignedBy),
+      department:t.department, project:t.project, start_date:t.startDate, due_date:t.dueDate,
+      priority:t.priority, level:t.level, status:t.status, estimated_hours:t.estimatedHours, actual_hours:t.actualHours,
+      completion_date:t.completionDate, progress:t.progress, completion_notes:t.completionNotes||''
+    }).eq('id', t.dbId).then(({error}) => { if (error) showToast('Could not save that change — check your connection'); });
     return t;
   }
   function deleteTask(id){
     const i = tasks.findIndex(x => x.id === id);
-    if (i > -1) tasks.splice(i,1);
-    persist();
+    if (i === -1) return;
+    const dbId = tasks[i].dbId;
+    tasks.splice(i,1);
+    sb.from('tasks').delete().eq('id', dbId).then(({error}) => { if (error) showToast('Could not delete that task — check your connection'); });
   }
   function addComment(taskId, text, authorId, type){
     const t = tasks.find(x => x.id === taskId);
     if (!t) return;
-    t.comments.push({ id:'C'+(++seq.comment), text, authorId, type: type || 'comment', at: new Date().toISOString() });
-    persist();
+    const tempId = 'Ctmp' + Date.now();
+    const optimistic = { id:tempId, dbId:null, taskDbId:t.dbId, text, authorId, type: type||'comment', at: new Date().toISOString() };
+    t.comments.push(optimistic);
+    sb.from('task_comments').insert({ task_id:t.dbId, author_id:rawId(authorId), text, type: type||'comment' }).select().single()
+      .then(({data, error}) => {
+        if (error){ showToast('Could not post that comment — check your connection'); return; }
+        const mapped = mapCommentRow(data);
+        const i = t.comments.findIndex(c => c.id === tempId);
+        if (i > -1) t.comments[i] = mapped;
+      });
   }
-  function addProject(name){ name = (name||'').trim(); if (name && !projects.includes(name)){ projects.push(name); persist(); } }
+  function addProject(name){
+    name = (name||'').trim();
+    if (!name || projects.includes(name)) return;
+    projects.push(name);
+    sb.from('projects').insert({ name }).select().single().then(({data, error}) => {
+      if (error){ showToast('Could not save that project — check your connection'); return; }
+      projRows.push({dbId:data.id, name:data.name});
+    });
+  }
   function renameProject(oldName, newName){
     newName = (newName||'').trim();
     if (!newName) return;
     const i = projects.indexOf(oldName);
     if (i > -1) projects[i] = newName;
+    const row = projRows.find(r => r.name === oldName);
     tasks.forEach(t => { if (t.project === oldName) t.project = newName; });
-    persist();
+    if (row){
+      row.name = newName;
+      sb.from('projects').update({ name:newName }).eq('id', row.dbId).then(({error}) => { if (error) showToast('Could not rename that project — check your connection'); });
+    }
+    sb.from('tasks').update({ project:newName }).eq('project', oldName).then(({error}) => { if (error) showToast('Renamed locally, but existing tasks may not have updated — check your connection'); });
   }
-  function addDepartment(name){ name = (name||'').trim(); if (name && !departments.includes(name)){ departments.push(name); persist(); } }
+  function addDepartment(name){
+    name = (name||'').trim();
+    if (!name || departments.includes(name)) return;
+    departments.push(name);
+    sb.from('departments').insert({ name }).select().single().then(({data, error}) => {
+      if (error){ showToast('Could not save that department — check your connection'); return; }
+      deptRows.push({dbId:data.id, name:data.name});
+    });
+  }
   function renameDepartment(oldName, newName){
     newName = (newName||'').trim();
     if (!newName) return;
     const i = departments.indexOf(oldName);
     if (i > -1) departments[i] = newName;
+    const row = deptRows.find(r => r.name === oldName);
     tasks.forEach(t => { if (t.department === oldName) t.department = newName; });
     employees.forEach(e => { if (e.department === oldName) e.department = newName; });
-    persist();
+    if (row){
+      row.name = newName;
+      sb.from('departments').update({ name:newName }).eq('id', row.dbId).then(({error}) => { if (error) showToast('Could not rename that department — check your connection'); });
+    }
+    sb.from('tasks').update({ department:newName }).eq('department', oldName).then(()=>{});
+    sb.from('employees').update({ department:newName }).eq('department', oldName).then(()=>{});
   }
 
   return { employees, departments, projects, tasks,
     addEmployee, updateEmployee, addTask, updateTask, deleteTask, addComment,
     addProject, renameProject, addDepartment, renameDepartment,
-    loadFromStorage, resetToDemoData };
+    fetchAll, setupRealtime };
 })();
 
 /* =====================================================================
@@ -508,108 +645,6 @@ function avatar(emp, size){
   size = size || 26;
   const cls = size >= 40 ? 'avatar lg' : 'avatar';
   return '<span class="'+cls+'" style="width:'+size+'px;height:'+size+'px;background:'+avatarColor(emp.id)+';font-size:'+Math.round(size*0.4)+'px">'+initials(emp.name)+'</span>';
-}
-
-/* =====================================================================
-   5. DEMO DATA
-   Anchored around the app's real "today" so Overdue / Due-Today / This-
-   Week alerts are meaningful when the app is opened. Historical months
-   (two months back and one month back) are fully resolved so Monthly
-   Reports and Month-over-Month comparisons have real data to compare.
-   ===================================================================== */
-function seedDemoData(){
-  const admin  = DB.addEmployee({ name:'Rocky Kumar', role:'admin', department:'Management', title:'Marketing & Technical Head', joinDate:'2021-04-01' });
-  const ashish = DB.addEmployee({ name:'Ashish Suyal', role:'member', department:'Digital Marketing', title:'Digital Marketing Manager', joinDate:'2022-02-15' });
-  const keshav = DB.addEmployee({ name:'Keshav Sharma', role:'member', department:'Digital Marketing', title:'Performance Marketing Specialist', joinDate:'2022-08-10' });
-  const pooja  = DB.addEmployee({ name:'Pooja Vishwakarma', role:'member', department:'Digital Marketing', title:'Digital Marketing Specialist', joinDate:'2023-03-20' });
-  const nayra  = DB.addEmployee({ name:'Nayra Singh', role:'member', department:'Creative', title:'Graphic Designer', joinDate:'2023-06-05' });
-  const poorvi = DB.addEmployee({ name:'Poorvi Agarwal', role:'member', department:'Creative', title:'Video Editor', joinDate:'2023-09-12' });
-
-  const today = todayDate();
-  const y = today.getFullYear(), m = today.getMonth();
-  const m1 = prevMonth(y,m), m2 = prevMonth(m1.y,m1.m); // last month, two months ago
-  const cur = {y,m}, last = m1, prior = m2;
-
-  function d(monthObj, day){ return monthObj.y+'-'+pad2(monthObj.m+1)+'-'+pad2(Math.min(day,28)); }
-
-  function T(o){
-    const t = {
-      name:o.name, description:o.description, assignedTo:o.assignedTo, assignedBy:admin.id,
-      department:o.department, project:o.project, createdDate:addDaysISO(o.start,-2), startDate:o.start,
-      dueDate:o.due, priority:o.priority, level:o.level, status:o.status,
-      estimatedHours:o.est, actualHours:o.actual != null ? o.actual : null,
-      completionDate:o.completed || null, progress:o.progress != null ? o.progress : (o.status==='Completed'?100:0),
-      completionNotes:o.notes || ''
-    };
-    const task = DB.addTask(t);
-    (o.comments||[]).forEach(c => DB.addComment(task.id, c.text, c.by, c.type));
-    return task;
-  }
-
-  /* ---- PRIOR MONTH (fully resolved — baseline for MoM trend) ---- */
-  T({name:'Q'+(prior.m+1)+' digital marketing plan', description:'Draft the cross-channel digital marketing plan and budget split for the quarter.', assignedTo:ashish.id, department:'Digital Marketing', project:'Digital Marketing', level:3, priority:'High', start:d(prior,2), due:d(prior,7), status:'Completed', est:8, actual:7, completed:d(prior,6)+'T16:20:00', progress:100, notes:'Plan approved a week ahead of schedule.'});
-  T({name:'Google Ads budget reallocation', description:'Reallocate monthly budget across search campaigns based on lead quality.', assignedTo:ashish.id, department:'Digital Marketing', project:'Google Ads', level:2, priority:'Medium', start:d(prior,12), due:d(prior,16), status:'Completed', est:4, actual:4, completed:d(prior,15)+'T10:00:00', progress:100, notes:'Budget shifted toward top 3 performing campaigns.'});
-  T({name:'Meta Ads creative refresh — Keystone Seasons', description:'Refresh underperforming carousel creatives for the Keystone Seasons campaign.', assignedTo:keshav.id, department:'Digital Marketing', project:'Meta Ads', level:3, priority:'High', start:d(prior,3), due:d(prior,10), status:'Completed', est:10, actual:12, completed:d(prior,13)+'T11:00:00', progress:100, notes:'New creatives live; CTR up 0.4pp vs prior set.'});
-  T({name:'Search campaign keyword audit', description:'Review search terms report and expand negative keyword lists.', assignedTo:keshav.id, department:'Digital Marketing', project:'Google Ads', level:2, priority:'Medium', start:d(prior,14), due:d(prior,19), status:'Completed', est:4, actual:3, completed:d(prior,18)+'T09:00:00', progress:100, notes:'Wasted spend reduced ~8%.'});
-  T({name:'Social content calendar — Q'+(prior.m+1), description:'Plan and schedule Instagram/Facebook content for the month across all active listings.', assignedTo:pooja.id, department:'Digital Marketing', project:'Digital Marketing', level:2, priority:'Medium', start:d(prior,4), due:d(prior,9), status:'Completed', est:7, actual:6, completed:d(prior,8)+'T14:00:00', progress:100, notes:'Calendar approved and scheduled a week ahead of plan.'});
-  T({name:'Monthly email newsletter', description:'Write and send the monthly project + offers digest to the subscriber list.', assignedTo:pooja.id, department:'Digital Marketing', project:'Other', level:1, priority:'Low', start:d(prior,20), due:d(prior,24), status:'Completed', est:3, actual:3, completed:d(prior,23)+'T11:00:00', progress:100, notes:'Open rate up 3pp on the previous send.'});
-  T({name:'Brochure redesign — Keystone Elevate', description:'Redesign the print brochure with updated floor plans and pricing.', assignedTo:nayra.id, department:'Creative', project:'Keystone Elevate', level:2, priority:'Medium', start:d(prior,8), due:d(prior,14), status:'Completed', est:8, actual:8, completed:d(prior,13)+'T15:00:00', progress:100, notes:'Final PDF sent to print vendor.'});
-  T({name:'Landing page visuals — Tonino Lamborghini', description:'Design the hero and gallery visuals for the project landing page.', assignedTo:nayra.id, department:'Creative', project:'Tonino Lamborghini', level:3, priority:'High', start:d(prior,4), due:d(prior,11), status:'Completed', est:9, actual:10, completed:d(prior,14)+'T17:00:00', progress:100, notes:'Approved by client after one revision round.'});
-  T({name:'Site walkthrough video edit — Keystone Seasons', description:'Edit raw drone + walkthrough footage into a 90s reel.', assignedTo:poorvi.id, department:'Creative', project:'Keystone Seasons', level:2, priority:'Low', start:d(prior,18), due:d(prior,24), status:'Completed', est:6, actual:9, completed:d(prior,27)+'T18:30:00', progress:100, notes:'Delivered 3 days late due to footage re-shoot.'});
-  T({name:'Instagram reels batch — Q'+(prior.m+1), description:'Shoot and edit 6 short-form reels for the month.', assignedTo:poorvi.id, department:'Digital Marketing', project:'Digital Marketing', level:2, priority:'Medium', start:d(prior,3), due:d(prior,9), status:'Completed', est:10, actual:9, completed:d(prior,9)+'T16:00:00', progress:100, notes:'All 6 reels published on schedule.'});
-  T({name:'Website & tracking audit', description:'Audit site performance and conversion-tracking accuracy across all landing pages.', assignedTo:admin.id, department:'Management', project:'Website', level:3, priority:'High', start:d(prior,6), due:d(prior,12), status:'Completed', est:6, actual:6, completed:d(prior,11)+'T10:00:00', progress:100, notes:'2 tracking gaps fixed; page speed improved on 3 templates.'});
-  T({name:'Team performance review — Q'+(prior.m+1), description:'Review the team\'s output and workload for the month.', assignedTo:admin.id, department:'Management', project:'Other', level:2, priority:'Medium', start:d(prior,22), due:d(prior,26), status:'Completed', est:3, actual:3, completed:d(prior,25)+'T12:00:00', progress:100, notes:'Shared with leadership.'});
-
-  /* ---- LAST MONTH (fully resolved, one still in progress to carry into current month) ---- */
-  T({name:'Monthly performance report — internal', description:'Compile last month\'s campaign performance for leadership review.', assignedTo:ashish.id, department:'Digital Marketing', project:'Digital Marketing', level:3, priority:'High', start:d(last,2), due:d(last,6), status:'Completed', est:6, actual:6, completed:d(last,5)+'T10:00:00', progress:100, notes:'Report presented at leadership sync.'});
-  T({name:'Cross-channel media plan draft', description:'Draft next month\'s cross-channel media plan and budget split.', assignedTo:ashish.id, department:'Digital Marketing', project:'Digital Marketing', level:4, priority:'Critical', start:d(last,10), due:d(last,15), status:'Completed', est:12, actual:16, completed:d(last,20)+'T17:00:00', progress:100, notes:'Delivered 5 days late — waiting on Q budget sign-off.'});
-  T({name:'Digital campaign brief — Tonino Lamborghini launch', description:'Own the end-to-end digital go-to-market brief for the launch, including budget, funnel and creative direction.', assignedTo:ashish.id, department:'Digital Marketing', project:'Tonino Lamborghini', level:4, priority:'Critical', start:d(last,26), due:d(last,28), status:'In Progress', est:14, actual:9, progress:60, comments:[{by:ashish.id, text:'Budget and funnel sections done; waiting on final creative direction from Nayra before closing this out.', type:'comment'}]});
-  T({name:'Meta pixel & CAPI audit', description:'Audit event tracking accuracy across all active Meta pixels.', assignedTo:keshav.id, department:'Digital Marketing', project:'Meta Ads', level:3, priority:'Critical', start:d(last,8), due:d(last,15), status:'Completed', est:9, actual:11, completed:d(last,18)+'T15:00:00', progress:100, notes:'Fixed 2 mis-tagged conversion events.'});
-  T({name:'Google Ads negative keyword cleanup', description:'Review search terms report and expand negative keyword lists.', assignedTo:keshav.id, department:'Digital Marketing', project:'Google Ads', level:1, priority:'Low', start:d(last,20), due:d(last,24), status:'Completed', est:3, actual:2, completed:d(last,23)+'T09:00:00', progress:100, notes:'Wasted spend reduced further ~5%.'});
-  T({name:'New client ad account audit', description:'Audit ad account structure and tracking setup for a newly onboarded client.', assignedTo:keshav.id, department:'Digital Marketing', project:'Google Ads', level:2, priority:'Medium', start:d(last,3), due:d(last,8), status:'Completed', est:5, actual:4, completed:d(last,7)+'T14:00:00', progress:100, notes:'Account structure documented; 2 tracking gaps fixed.'});
-  T({name:'Reels + stories batch — last month', description:'Produce and edit weekly short-form content batch.', assignedTo:pooja.id, department:'Digital Marketing', project:'Digital Marketing', level:2, priority:'Medium', start:d(last,2), due:d(last,8), status:'Completed', est:9, actual:8, completed:d(last,7)+'T15:00:00', progress:100, notes:'Best-performing reel hit 40k views.'});
-  T({name:'Influencer outreach — Keystone Seasons', description:'Shortlist and reach out to local lifestyle influencers for a paid collab.', assignedTo:pooja.id, department:'Digital Marketing', project:'Keystone Seasons', level:2, priority:'Medium', start:d(last,12), due:d(last,19), status:'Completed', est:7, actual:9, completed:d(last,23)+'T14:00:00', progress:100, notes:'2 collabs confirmed for next month.'});
-  T({name:'WhatsApp broadcast automation setup', description:'Set up a scheduled WhatsApp broadcast flow for site-visit reminders.', assignedTo:pooja.id, department:'CRM', project:'CRM', level:1, priority:'High', start:d(last,5), due:d(last,9), status:'Completed', est:4, actual:4, completed:d(last,9)+'T11:00:00', progress:100, notes:'Live for all upcoming weekend site visits.'});
-  T({name:'Client presentation deck — Tonino Lamborghini', description:'Design the investor-facing presentation deck for the upcoming launch.', assignedTo:nayra.id, department:'Creative', project:'Tonino Lamborghini', level:3, priority:'High', start:d(last,10), due:d(last,17), status:'Completed', est:10, actual:14, completed:d(last,22)+'T18:00:00', progress:100, notes:'Delivered 5 days late — three rounds of client revisions.'});
-  T({name:'Brand guideline refresh', description:'Update the master brand guideline document with new typography rules.', assignedTo:nayra.id, department:'Creative', project:'Other', level:2, priority:'Low', start:d(last,19), due:d(last,25), status:'Completed', est:6, actual:5, completed:d(last,24)+'T13:00:00', progress:100, notes:'Published to shared drive.'});
-  T({name:'Amenity photography edit — Keystone Elevate', description:'Edit and colour-grade the amenities photoshoot delivered by the vendor.', assignedTo:poorvi.id, department:'Creative', project:'Keystone Elevate', level:2, priority:'Medium', start:d(last,3), due:d(last,9), status:'Completed', est:7, actual:7, completed:d(last,9)+'T17:00:00', progress:100, notes:'42 final images delivered to the digital team.'});
-  T({name:'Event highlight reel — investor preview', description:'Edit the investor preview event footage into a 2-minute highlight reel.', assignedTo:poorvi.id, department:'Creative', project:'Events', level:3, priority:'High', start:d(last,14), due:d(last,20), status:'Completed', est:9, actual:13, completed:d(last,25)+'T19:00:00', progress:100, notes:'Delivered late — event date shifted; well received once posted.'});
-
-  /* ---- CURRENT MONTH (live workload — mix of every status, overdue, due-today/tomorrow/this-week, unassigned) ---- */
-  const t = today.getDate();
-  T({name:'New client onboarding audit', description:'Audit ad account structure and tracking setup for a newly onboarded client.', assignedTo:ashish.id, department:'Digital Marketing', project:'Google Ads', level:2, priority:'Medium', start:d(cur,Math.max(1,t-8)), due:d(cur,Math.max(1,t-5)), status:'Completed', est:5, actual:4, completed:d(cur,Math.max(1,t-5))+'T14:00:00', progress:100, notes:'Account structure documented; tracking verified.'});
-  T({name:'Search campaign restructure', description:'Restructure the Google Ads account into tighter ad groups by project.', assignedTo:ashish.id, department:'Digital Marketing', project:'Google Ads', level:2, priority:'Medium', start:d(cur,Math.max(1,t-6)), due:d(cur,Math.max(1,t-1)), status:'Not Started', est:6, actual:null, progress:0});
-  T({name:'Weekly paid media report', description:'Compile the weekly cross-channel paid media performance report.', assignedTo:ashish.id, department:'Digital Marketing', project:'Digital Marketing', level:1, priority:'Medium', start:d(cur,Math.max(1,t-1)), due:d(cur,t+1), status:'Not Started', est:2, actual:null, progress:0});
-  T({name:'Q'+(cur.m+1)+' cross-channel media plan', description:'Draft next quarter\'s cross-channel media plan and budget split.', assignedTo:ashish.id, department:'Digital Marketing', project:'Digital Marketing', level:4, priority:'High', start:d(cur,t+2), due:d(cur,Math.min(28,t+16)), status:'Not Started', est:12, actual:null, progress:0});
-
-  T({name:'Google Ads negative keyword sweep', description:'Review the search terms report and expand negative keyword lists.', assignedTo:keshav.id, department:'Digital Marketing', project:'Google Ads', level:1, priority:'Low', start:d(cur,Math.max(1,t-8)), due:d(cur,Math.max(1,t-5)), status:'Completed', est:3, actual:2, completed:d(cur,Math.max(1,t-5))+'T10:00:00', progress:100, notes:'Wasted spend reduced ~6%.'});
-  T({name:'Meta Ads creative refresh — '+monthLabel(cur.y,cur.m), description:'Produce and launch a fresh carousel + reel creative set for active campaigns.', assignedTo:keshav.id, department:'Digital Marketing', project:'Meta Ads', level:3, priority:'High', start:d(cur,Math.max(1,t-9)), due:d(cur,Math.max(1,t-3)), status:'In Progress', est:10, actual:6, progress:50, comments:[{by:keshav.id,text:'First 3 creatives are live; waiting on Nayra for the remaining set before this can close.', type:'comment'}]});
-  T({name:'Website conversion audit', description:'Audit the project landing pages for form-fill drop-off points.', assignedTo:keshav.id, department:'Digital Marketing', project:'Website', level:3, priority:'Critical', start:d(cur,Math.max(1,t-4)), due:d(cur,t), status:'In Progress', est:8, actual:5, progress:75});
-  T({name:'Google Ads quality score review', description:'Review quality scores across active search campaigns and fix low-scoring ad groups.', assignedTo:keshav.id, department:'Digital Marketing', project:'Google Ads', level:1, priority:'Low', start:d(cur,t), due:d(cur,t+2), status:'Not Started', est:3, actual:null, progress:0});
-  T({name:'Meta Ads UGC testing batch', description:'Test a batch of UGC-style ad creatives against the current top performer.', assignedTo:keshav.id, department:'Digital Marketing', project:'Meta Ads', level:3, priority:'High', start:d(cur,t+2), due:d(cur,Math.min(28,t+10)), status:'Not Started', est:8, actual:null, progress:0});
-
-  T({name:'Social content calendar — '+monthLabel(cur.y,cur.m), description:'Plan and schedule Instagram/Facebook content for the month across all active listings.', assignedTo:pooja.id, department:'Digital Marketing', project:'Digital Marketing', level:2, priority:'Medium', start:d(cur,Math.max(1,t-6)), due:d(cur,Math.max(1,t-2)), status:'Completed', est:7, actual:6, completed:d(cur,Math.max(1,t-2))+'T11:00:00', progress:100, notes:'Calendar approved and scheduled for the month.'});
-  T({name:'WhatsApp broadcast — site visit reminder', description:'Send a scheduled WhatsApp reminder to all confirmed weekend site visits.', assignedTo:pooja.id, department:'CRM', project:'CRM', level:1, priority:'High', start:d(cur,t), due:d(cur,t), status:'Not Started', est:1, actual:null, progress:0});
-  T({name:'Influencer collab content review', description:'Review and approve content drafts from the confirmed influencer collabs.', assignedTo:pooja.id, department:'Digital Marketing', project:'Keystone Seasons', level:2, priority:'High', start:d(cur,Math.max(1,t-2)), due:d(cur,t+1), status:'In Progress', est:5, actual:2, progress:25});
-  T({name:'Email newsletter template refresh', description:'Redesign the monthly newsletter template with the updated brand kit.', assignedTo:pooja.id, department:'Digital Marketing', project:'Other', level:2, priority:'Medium', start:d(cur,Math.max(1,t-2)), due:d(cur,t+3), status:'In Progress', est:6, actual:3, progress:50});
-  T({name:'Community comment & DM response sweep', description:'Clear the backlog of Instagram/Facebook comments and DMs.', assignedTo:pooja.id, department:'Digital Marketing', project:'Digital Marketing', level:1, priority:'Low', start:d(cur,t), due:d(cur,t+2), status:'Not Started', est:2, actual:null, progress:0});
-
-  T({name:'Social asset pack — Google Display', description:'Design a set of static and animated display banners for the Google Display network.', assignedTo:nayra.id, department:'Creative', project:'Google Ads', level:2, priority:'Medium', start:d(cur,Math.max(1,t-9)), due:d(cur,Math.max(1,t-6)), status:'Completed', est:6, actual:6, completed:d(cur,Math.max(1,t-6))+'T16:00:00', progress:100, notes:'8 banner sizes delivered, all within brand guidelines.'});
-  T({name:'Show-flat signage design', description:'Design updated wayfinding and pricing signage for the show-flat.', assignedTo:nayra.id, department:'Creative', project:'Keystone Seasons', level:1, priority:'Low', start:d(cur,Math.max(1,t-8)), due:d(cur,Math.max(1,t-2)), status:'On Hold', est:4, actual:1, progress:25, comments:[{by:nayra.id,text:'Paused — waiting on finalized pricing sheet from sales before signage can be produced.', type:'comment'}]});
-  T({name:'Landing page hero visuals — Tonino Lamborghini', description:'Design the hero and gallery visuals for the launch landing page.', assignedTo:nayra.id, department:'Creative', project:'Tonino Lamborghini', level:3, priority:'Critical', start:d(cur,Math.max(1,t-5)), due:d(cur,t), status:'In Progress', est:10, actual:7, progress:75});
-  T({name:'Print ad — regional newspaper', description:'Design a full-page print ad for the regional weekend edition.', assignedTo:nayra.id, department:'Creative', project:'Keystone Elevate', level:2, priority:'High', start:d(cur,t), due:d(cur,t+2), status:'Not Started', est:6, actual:null, progress:0});
-  T({name:'Founder LinkedIn content pack', description:'Design 4 LinkedIn post graphics for the founder\'s personal brand presence.', assignedTo:nayra.id, department:'Creative', project:'Other', level:1, priority:'Low', start:d(cur,t+3), due:d(cur,Math.min(28,t+12)), status:'Not Started', est:4, actual:null, progress:0});
-
-  T({name:'Reels batch — '+monthLabel(cur.y,cur.m), description:'Shoot, edit and publish the monthly short-form content batch.', assignedTo:poorvi.id, department:'Digital Marketing', project:'Digital Marketing', level:2, priority:'Medium', start:d(cur,Math.max(1,t-7)), due:d(cur,Math.max(1,t-1)), status:'Completed', est:10, actual:9, completed:d(cur,Math.max(1,t-1))+'T16:00:00', progress:100, notes:'6 reels published; two exceeded 25k views.'});
-  T({name:'Show-flat walkthrough video refresh', description:'Re-shoot and edit an updated walkthrough video for the show-flat.', assignedTo:poorvi.id, department:'Creative', project:'Keystone Seasons', level:2, priority:'Medium', start:d(cur,Math.max(1,t-9)), due:d(cur,Math.max(1,t-4)), status:'In Progress', est:7, actual:3, progress:25, comments:[{by:poorvi.id,text:'Re-shoot done; still colour-grading and syncing the voiceover track.', type:'comment'}]});
-  T({name:'Investor preview highlight video', description:'Edit the investor preview event footage into a highlight reel.', assignedTo:poorvi.id, department:'Creative', project:'Events', level:3, priority:'Critical', start:d(cur,Math.max(1,t-3)), due:d(cur,t+1), status:'In Progress', est:11, actual:5, progress:50});
-  T({name:'Meta Ads UGC video batch', description:'Edit a batch of UGC-style video ads for testing against the current top performer.', assignedTo:poorvi.id, department:'Creative', project:'Meta Ads', level:2, priority:'High', start:d(cur,t+2), due:d(cur,Math.min(28,t+10)), status:'Not Started', est:8, actual:null, progress:0});
-
-  T({name:'Monthly leadership performance review', description:'Prepare the cross-team performance summary for the leadership review.', assignedTo:admin.id, department:'Management', project:'Other', level:4, priority:'Critical', start:d(cur,Math.max(1,t-3)), due:d(cur,t+3), status:'In Progress', est:6, actual:3, progress:50});
-  T({name:'Website & CRM tech stack review', description:'Review the current website and CRM tooling and flag upgrades or fixes needed.', assignedTo:admin.id, department:'Management', project:'Website', level:3, priority:'High', start:d(cur,t), due:d(cur,t+5), status:'Not Started', est:5, actual:null, progress:0});
-  T({name:'Team resourcing review — '+monthLabel(cur.y,cur.m), description:'Review current workload distribution and flag re-balancing needs.', assignedTo:admin.id, department:'Management', project:'Other', level:2, priority:'Medium', start:d(cur,t), due:d(cur,t+5), status:'Not Started', est:3, actual:null, progress:0});
-  T({name:'Website homepage refresh brief', description:'Write the creative brief for the homepage visual refresh — needs an owner.', assignedTo:null, department:'Digital Marketing', project:'Website', level:2, priority:'Medium', start:d(cur,t), due:d(cur,t+7), status:'Not Started', est:5, actual:null, progress:0});
-  T({name:'Diwali campaign concept', description:'Concept and pitch the festive-season campaign direction — needs an owner.', assignedTo:null, department:'Creative', project:'Other', level:3, priority:'High', start:d(cur,t+1), due:d(cur,Math.min(28,t+14)), status:'Not Started', est:8, actual:null, progress:0});
 }
 
 /* =====================================================================
@@ -1663,19 +1698,8 @@ function viewSettings(){
     '</div>' +
     '<div class="card card-pad" style="margin-top:16px">' +
       '<div class="card-title-sm" style="margin-bottom:6px">Data & Integrations</div>' +
-      '<div class="sub" style="margin-bottom:10px">This workspace saves its data to this browser only (see the <span class="mono">DB</span> object at the top of the script) — it survives a refresh or closing the tab on this device, but it is not shared with other browsers or devices, and clearing this browser\'s site data will erase it. It is deliberately kept separate from every view, so it can later be swapped for Supabase, Firebase, Airtable or PostgreSQL — a real shared database — without changing any screen in this app.</div>' +
-      (state.confirmResetDemo ?
-        ('<span style="color:var(--bad);font-weight:700;font-size:12.5px;margin-right:8px">Erase all saved changes in this browser and reload the original demo data?</span><button class="btn btn-sm btn-danger" onclick="confirmResetDemoAction()">Yes, reset</button><button class="btn btn-sm btn-ghost" onclick="cancelResetDemo()">Cancel</button>')
-      :
-        ('<button class="btn btn-sm btn-danger" onclick="askResetDemo()">Reset to Demo Data</button>')
-      ) +
+      '<div class="sub">This workspace is backed by a real shared Postgres database (Supabase) — every person\'s changes save to the same place and sync live to everyone else\'s screen, on any device or browser, no refresh needed. See the <span class="mono">DB</span> object at the top of the script for the data layer; it is kept separate from every view so the backend can be swapped again later without changing any screen in this app.</div>' +
     '</div>';
-}
-function askResetDemo(){ state.confirmResetDemo = true; render(); }
-function cancelResetDemo(){ state.confirmResetDemo = false; render(); }
-function confirmResetDemoAction(){
-  DB.resetToDemoData();
-  location.reload();
 }
 
 /* =====================================================================
@@ -1733,7 +1757,7 @@ function renderTaskFormModal(taskId){
     '</div>' +
   '</div></div>';
 }
-function saveTaskForm(id){
+async function saveTaskForm(id){
   const name = document.getElementById('tf-name').value.trim();
   if (!name){ showToast('Task name is required'); return; }
   const assignee = document.getElementById('tf-assignee').value || null;
@@ -1757,10 +1781,12 @@ function saveTaskForm(id){
     DB.updateTask(id, patch);
     showToast('Task updated');
   } else {
-    DB.addTask({ name, description:desc, assignedTo:assignee, assignedBy:currentUser().id, department:dept, project,
-      createdDate:todayISO(), startDate:start, dueDate:due, priority, level, status, estimatedHours:est, actualHours:null,
-      progress: status==='Completed'?100:0, completionDate: status==='Completed'?new Date().toISOString():null, completionNotes:'' });
-    showToast('Task created');
+    try {
+      await DB.addTask({ name, description:desc, assignedTo:assignee, assignedBy:currentUser().id, department:dept, project,
+        createdDate:todayISO(), startDate:start, dueDate:due, priority, level, status, estimatedHours:est, actualHours:null,
+        progress: status==='Completed'?100:0, completionDate: status==='Completed'?new Date().toISOString():null, completionNotes:'' });
+      showToast('Task created');
+    } catch(e){ showToast('Could not save the task — check your connection and try again'); return; }
   }
   closeModal();
 }
@@ -2075,15 +2101,22 @@ function renderEmployeeFormModal(empId){
     '<div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveEmployeeForm('+(e?"'"+e.id+"'":'null')+')">Save</button></div>' +
   '</div></div>';
 }
-function saveEmployeeForm(id){
+async function saveEmployeeForm(id){
   const name = document.getElementById('ef-name').value.trim();
   if (!name){ showToast('Name is required'); return; }
   const title = document.getElementById('ef-title').value.trim();
   const department = document.getElementById('ef-dept').value;
   const role = document.getElementById('ef-role').value;
   const joinDate = document.getElementById('ef-join').value;
-  if (id){ DB.updateEmployee(id, {name, title, department, role, joinDate}); showToast('Employee updated'); }
-  else { DB.addEmployee({name, title, department, role, joinDate, active:true}); showToast('Employee added'); }
+  if (id){
+    DB.updateEmployee(id, {name, title, department, role, joinDate});
+    showToast('Employee updated');
+  } else {
+    try {
+      await DB.addEmployee({name, title, department, role, joinDate, active:true});
+      showToast('Employee added');
+    } catch(e){ showToast('Could not add the employee — check your connection and try again'); return; }
+  }
   closeModal();
 }
 
@@ -2142,16 +2175,32 @@ function getSavedUser(){
   } catch(e){ return null; }
 }
 
-if (!DB.loadFromStorage()) seedDemoData();
-const savedUser = getSavedUser();
-if (savedUser){
-  state.currentUserId = savedUser.id;
-  state.locked = savedUser.role !== 'admin';
-} else {
-  state.currentUserId = null;
-  state.locked = true;
+async function initApp(){
+  try {
+    await DB.fetchAll();
+  } catch(e){
+    console.error('Taskframe: failed to load data', e);
+    document.getElementById('app').innerHTML =
+      '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:#F5F7F5">' +
+        '<div class="card card-pad" style="max-width:420px;text-align:center">' +
+          '<div style="font-weight:800;font-size:16px;margin-bottom:6px;color:var(--bad)">Could not connect</div>' +
+          '<div class="sub">Taskframe could not reach its database. Check your internet connection and reload the page. If this keeps happening, ask your workspace administrator to check the database configuration.</div>' +
+        '</div>' +
+      '</div>';
+    return;
+  }
+  DB.setupRealtime(render);
+  const savedUser = getSavedUser();
+  if (savedUser){
+    state.currentUserId = savedUser.id;
+    state.locked = savedUser.role !== 'admin';
+  } else {
+    state.currentUserId = null;
+    state.locked = true;
+  }
+  render();
 }
-render();
+initApp();
 </script>
 
 
