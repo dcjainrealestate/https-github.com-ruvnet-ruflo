@@ -3,7 +3,7 @@ name: Deploy Taskframe to GitHub Pages
 on:
   push:
     branches: [ claude/team-task-dashboard-oz24lm ]
-    paths: [ 'src/team-task-dashboard/index.html' ]
+    paths: [ 'src/team-task-dashboard/index.html', 'src/team-task-dashboard/assets/**' ]
   workflow_dispatch:
 
 permissions:
@@ -25,8 +25,9 @@ jobs:
       - uses: actions/checkout@v4
       - name: Prepare site
         run: |
-          mkdir -p _site
+          mkdir -p _site/assets
           cp src/team-task-dashboard/index.html _site/index.html
+          if [ -d src/team-task-dashboard/assets ]; then cp -r src/team-task-dashboard/assets/. _site/assets/; fi
       - uses: actions/configure-pages@v5
         with:
           enablement: true
