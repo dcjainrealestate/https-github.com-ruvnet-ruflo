@@ -917,9 +917,8 @@ const state = {
   sidebarOpen: false,
   authMode: 'code',
   emailAttempt: '',
-  emailOtpSent: false,
+  emailLinkSent: false,
   emailSending: false,
-  emailVerifying: false,
   emailError: null,
   modal: null,
   taskDraft: null,
@@ -1110,7 +1109,7 @@ function signOut(){
   state.accessError = false;
   state.authMode = 'code';
   state.emailAttempt = '';
-  state.emailOtpSent = false;
+  state.emailLinkSent = false;
   state.emailError = null;
   resetSessionState();
   try { localStorage.removeItem('tf_access_code'); } catch(e){}
@@ -1118,7 +1117,7 @@ function signOut(){
   render();
 }
 function switchAuthMode(mode){ state.authMode = mode; state.emailError = null; render(); }
-async function requestEmailOtp(){
+async function sendMagicLink(){
   const email = (document.getElementById('email-input').value || '').trim().toLowerCase();
   state.emailAttempt = email;
   if (!email){ state.emailError = 'Enter your email address.'; render(); return; }
@@ -1127,31 +1126,14 @@ async function requestEmailOtp(){
   state.emailError = null;
   state.emailSending = true;
   render();
-  const { error } = await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
+  const redirectTo = window.location.origin + window.location.pathname;
+  const { error } = await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: true, emailRedirectTo: redirectTo } });
   state.emailSending = false;
-  if (error){ state.emailError = 'Could not send the code — check your connection and try again.'; render(); return; }
-  state.emailOtpSent = true;
+  if (error){ state.emailError = 'Could not send the link — check your connection and try again.'; render(); return; }
+  state.emailLinkSent = true;
   render();
 }
-async function verifyEmailOtp(){
-  const email = state.emailAttempt;
-  const token = (document.getElementById('email-otp-input').value || '').trim();
-  if (!token){ state.emailError = 'Enter the code from your email.'; render(); return; }
-  state.emailVerifying = true;
-  render();
-  const { error } = await sb.auth.verifyOtp({ email, token, type: 'email' });
-  state.emailVerifying = false;
-  if (error){ state.emailError = 'That code is incorrect or expired — try again.'; render(); return; }
-  const emp = DB.employees.find(e => e.active && e.email && e.email.toLowerCase() === email);
-  if (!emp){ state.emailError = "That email isn't linked to an employee — contact your manager."; render(); return; }
-  state.currentUserId = emp.id;
-  state.locked = emp.role !== 'admin';
-  state.emailError = null;
-  resetSessionState();
-  try { localStorage.setItem('tf_access_code', emp.token); } catch(e){}
-  render();
-}
-function useAnotherEmail(){ state.emailOtpSent = false; state.emailError = null; render(); }
+function useAnotherEmail(){ state.emailLinkSent = false; state.emailError = null; render(); }
 function renderAccessGate(){
   const mode = state.authMode || 'code';
   return '<div style="min-height:100vh;width:100%;display:flex;align-items:center;justify-content:center;padding:24px;background:var(--bg)">' +
@@ -1175,21 +1157,18 @@ function renderCodeGateBody(){
     '<button class="btn btn-primary" style="width:100%;margin-top:12px;justify-content:center" onclick="submitAccessCode()">Continue</button>';
 }
 function renderEmailGateBody(){
-  if (!state.emailOtpSent){
+  if (!state.emailLinkSent){
     return '' +
       '<div style="font-weight:800;font-size:16px;margin-bottom:6px">Sign in with email</div>' +
-      '<div class="sub" style="margin-bottom:16px">Enter the email address on file with your manager — we\'ll send you a one-time code.</div>' +
-      '<input id="email-input" type="email" autocomplete="email" class="field" style="width:100%;text-align:center;font-size:15px;padding:10px" placeholder="you@gmail.com" value="'+escAttr(state.emailAttempt||'')+'" onkeydown="if(event.key===\'Enter\') requestEmailOtp()" '+(state.emailSending?'disabled':'')+' />' +
+      '<div class="sub" style="margin-bottom:16px">Enter the email address on file with your manager — we\'ll email you a secure sign-in link.</div>' +
+      '<input id="email-input" type="email" autocomplete="email" class="field" style="width:100%;text-align:center;font-size:15px;padding:10px" placeholder="you@gmail.com" value="'+escAttr(state.emailAttempt||'')+'" onkeydown="if(event.key===\'Enter\') sendMagicLink()" '+(state.emailSending?'disabled':'')+' />' +
       (state.emailError ? '<div style="color:var(--bad);font-size:12px;font-weight:700;margin-top:8px">'+escHtml(state.emailError)+'</div>' : '') +
-      '<button class="btn btn-primary" style="width:100%;margin-top:12px;justify-content:center" onclick="requestEmailOtp()" '+(state.emailSending?'disabled':'')+'>'+(state.emailSending?'Sending…':'Send Code')+'</button>';
+      '<button class="btn btn-primary" style="width:100%;margin-top:12px;justify-content:center" onclick="sendMagicLink()" '+(state.emailSending?'disabled':'')+'>'+(state.emailSending?'Sending…':'Send Sign-In Link')+'</button>';
   }
   return '' +
-    '<div style="font-weight:800;font-size:16px;margin-bottom:6px">Enter the code we emailed you</div>' +
-    '<div class="sub" style="margin-bottom:16px">A 6-digit code was sent to <b>'+escHtml(state.emailAttempt)+'</b>. Check your inbox (and spam folder).</div>' +
-    '<input id="email-otp-input" class="field" style="width:100%;text-align:center;font-size:18px;letter-spacing:.2em;padding:10px" placeholder="123456" inputmode="numeric" maxlength="6" onkeydown="if(event.key===\'Enter\') verifyEmailOtp()" '+(state.emailVerifying?'disabled':'')+' />' +
-    (state.emailError ? '<div style="color:var(--bad);font-size:12px;font-weight:700;margin-top:8px">'+escHtml(state.emailError)+'</div>' : '') +
-    '<button class="btn btn-primary" style="width:100%;margin-top:12px;justify-content:center" onclick="verifyEmailOtp()" '+(state.emailVerifying?'disabled':'')+'>'+(state.emailVerifying?'Verifying…':'Verify & Continue')+'</button>' +
-    '<button class="btn btn-ghost btn-sm" style="width:100%;margin-top:8px;justify-content:center" onclick="useAnotherEmail()">Use a different email</button>';
+    '<div style="font-weight:800;font-size:16px;margin-bottom:6px">Check your email</div>' +
+    '<div class="sub" style="margin-bottom:16px">We sent a sign-in link to <b>'+escHtml(state.emailAttempt)+'</b>. Open it (check spam too) to come straight back here, signed in.</div>' +
+    '<button class="btn btn-ghost btn-sm" style="width:100%;justify-content:center" onclick="useAnotherEmail()">Use a different email</button>';
 }
 function renderShell(){
   const u = currentUser();
@@ -2476,13 +2455,34 @@ async function initApp(){
     return;
   }
   DB.setupRealtime(render);
-  const savedUser = getSavedUser();
-  if (savedUser){
-    state.currentUserId = savedUser.id;
-    state.locked = savedUser.role !== 'admin';
-  } else {
-    state.currentUserId = null;
-    state.locked = true;
+
+  // A clicked magic-link redirect lands back here with the session already
+  // established by the supabase-js client (it parses the URL automatically).
+  // Check for that before falling back to the saved access-code session.
+  let signedInViaEmail = false;
+  try {
+    const { data } = await sb.auth.getSession();
+    const authEmail = data && data.session && data.session.user && data.session.user.email;
+    if (authEmail){
+      const emp = DB.employees.find(e => e.active && e.email && e.email.toLowerCase() === authEmail.toLowerCase());
+      if (emp){
+        state.currentUserId = emp.id;
+        state.locked = emp.role !== 'admin';
+        try { localStorage.setItem('tf_access_code', emp.token); } catch(e){}
+        signedInViaEmail = true;
+      }
+    }
+  } catch(e){}
+
+  if (!signedInViaEmail){
+    const savedUser = getSavedUser();
+    if (savedUser){
+      state.currentUserId = savedUser.id;
+      state.locked = savedUser.role !== 'admin';
+    } else {
+      state.currentUserId = null;
+      state.locked = true;
+    }
   }
   render();
 }
