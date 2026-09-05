@@ -166,6 +166,7 @@
   .pill-status-notstarted{background:var(--neutral-soft); color:var(--neutral-status);}
   .pill-status-inprogress{background:var(--info-soft); color:var(--info);}
   .pill-status-onhold{background:var(--warn-soft); color:var(--warn);}
+  .pill-status-pendingapproval{background:var(--gold-soft); color:var(--gold);}
   .pill-status-completed{background:var(--good-soft); color:var(--good);}
   .pill-status-cancelled{background:var(--surface-2); color:var(--ink-faint); text-decoration:line-through;}
   .pill-overdue{background:var(--bad); color:#fff;}
@@ -394,14 +395,16 @@ const LEVELS = {
   4:{label:'Critical / Strategic', points:4}
 };
 const PRIORITIES = ['Critical','High','Medium','Low'];
-const STATUSES = ['Not Started','In Progress','On Hold','Completed','Cancelled'];
-const STATUS_CLASS = {'Not Started':'notstarted','In Progress':'inprogress','On Hold':'onhold','Completed':'completed','Cancelled':'cancelled'};
+const STATUSES = ['Not Started','In Progress','On Hold','Pending Approval','Completed','Cancelled'];
+const MEMBER_STATUSES = ['Not Started','In Progress','On Hold'];
+const STATUS_CLASS = {'Not Started':'notstarted','In Progress':'inprogress','On Hold':'onhold','Pending Approval':'pendingapproval','Completed':'completed','Cancelled':'cancelled'};
 const PRIORITY_CLASS = {'Critical':'critical','High':'high','Medium':'medium','Low':'low'};
 
-function isOverdue(t){ return t.status !== 'Completed' && t.status !== 'Cancelled' && t.dueDate < todayISO(); }
+function isOverdue(t){ return t.status !== 'Completed' && t.status !== 'Cancelled' && t.status !== 'Pending Approval' && t.dueDate < todayISO(); }
 function daysRemaining(t){ return daysBetween(todayISO(), t.dueDate); }
 function daysRemainingLabel(t){
   if (t.status === 'Completed') return 'Completed';
+  if (t.status === 'Pending Approval') return 'Awaiting approval';
   if (t.status === 'Cancelled') return '—';
   const d = daysRemaining(t);
   if (d < 0) return Math.abs(d) + 'd overdue';
@@ -584,6 +587,7 @@ function tasksForEmployeeInMonth(empId, y, m){
 function computeStats(taskList){
   const completed = taskList.filter(t => t.status === 'Completed');
   const cancelled = taskList.filter(t => t.status === 'Cancelled');
+  const pendingApproval = taskList.filter(t => t.status === 'Pending Approval');
   const overdue = taskList.filter(isOverdue);
   const inProgress = taskList.filter(t => t.status === 'In Progress' && !isOverdue(t));
   const onHold = taskList.filter(t => t.status === 'On Hold' && !isOverdue(t));
@@ -618,7 +622,7 @@ function computeStats(taskList){
   return {
     assigned: taskList.length, activeAssigned, completed: completed.length, cancelled: cancelled.length,
     overdue: overdue.length, inProgress: inProgress.length, onHold: onHold.length, notStarted: notStarted.length,
-    pending: pending.length, completionRate, onTimeRate, taskPoints, maxPoints, difficultyScore,
+    pending: pending.length, pendingApproval: pendingApproval.length, completionRate, onTimeRate, taskPoints, maxPoints, difficultyScore,
     deadlineDiscipline, consistency, efficiency, weekly
   };
 }
@@ -626,6 +630,7 @@ function computeStats(taskList){
 function companyStats(taskList){
   const all = taskList.filter(t => t.status !== 'Cancelled');
   const completed = all.filter(t => t.status === 'Completed');
+  const pendingApproval = all.filter(t => t.status === 'Pending Approval');
   const overdue = all.filter(isOverdue);
   const inProgress = all.filter(t => t.status === 'In Progress' && !isOverdue(t));
   const pending = all.filter(t => (t.status === 'Not Started' || t.status === 'On Hold') && !isOverdue(t));
@@ -637,7 +642,8 @@ function companyStats(taskList){
   const effs = members.map(e => computeStats(tasksForEmployeeInMonth(e.id, today.getFullYear(), today.getMonth())).efficiency);
   const teamEfficiency = effs.length ? effs.reduce((a,b)=>a+b,0)/effs.length : 0;
   return {
-    total: all.length, completed: completed.length, inProgress: inProgress.length, pending: pending.length, overdue: overdue.length,
+    total: all.length, completed: completed.length, inProgress: inProgress.length, pending: pending.length,
+    pendingApproval: pendingApproval.length, overdue: overdue.length,
     completionRate: all.length ? completed.length/all.length*100 : 0,
     onTimeRate: completed.length ? onTime.length/completed.length*100 : 0,
     avgCompletionDays, teamEfficiency
@@ -738,7 +744,12 @@ const state = {
 function currentUser(){ return DB.employees.find(e => e.id === state.currentUserId); }
 function isAdmin(){ const u = currentUser(); return !!u && u.role === 'admin'; }
 function canEditTask(t){ return isAdmin(); }
-function canUpdateProgress(t){ const u = currentUser(); return isAdmin() || (u && t.assignedTo === u.id); }
+function canUpdateProgress(t){
+  if (isAdmin()) return true;
+  if (t.status === 'Pending Approval') return false; // out of the member's hands until the manager reviews it
+  const u = currentUser();
+  return u && t.assignedTo === u.id;
+}
 
 let toastTimer = null;
 function showToast(msg){
@@ -840,7 +851,8 @@ function computeAlerts(scopeTasks){
   const overdue = scopeTasks.filter(isOverdue);
   const critical = scopeTasks.filter(t => t.priority==='Critical' && t.status!=='Completed' && t.status!=='Cancelled');
   const unassigned = scopeTasks.filter(t => !t.assignedTo && t.status!=='Cancelled');
-  return { dueToday, dueTomorrow, overdue, critical, unassigned };
+  const pendingApproval = scopeTasks.filter(t => t.status==='Pending Approval');
+  return { dueToday, dueTomorrow, overdue, critical, unassigned, pendingApproval };
 }
 
 /* =====================================================================
@@ -858,6 +870,12 @@ const NAV = [
 ];
 
 function normalizeCode(s){ return (s||'').toLowerCase().replace(/[^a-z0-9]/g,''); }
+function resetSessionState(){
+  state.view = 'dashboard';
+  state.search = '';
+  state.modal = null;
+  state.taskFilters = { quick:'All', status:'All', dept:'All', project:'All', employee:'All', priority:'All', level:'All' };
+}
 function submitAccessCode(){
   const raw = document.getElementById('access-code-input').value;
   state.accessAttempt = raw;
@@ -866,6 +884,7 @@ function submitAccessCode(){
   state.currentUserId = emp.id;
   state.locked = emp.role !== 'admin';
   state.accessError = false;
+  resetSessionState();
   try { localStorage.setItem('tf_access_code', emp.token); } catch(e){}
   render();
 }
@@ -873,6 +892,7 @@ function signOut(){
   state.currentUserId = null;
   state.accessAttempt = '';
   state.accessError = false;
+  resetSessionState();
   try { localStorage.removeItem('tf_access_code'); } catch(e){}
   render();
 }
@@ -892,7 +912,7 @@ function renderShell(){
   const u = currentUser();
   if (!u) return renderAccessGate();
   const alerts = computeAlerts(isAdmin() ? DB.tasks : DB.tasks.filter(t=>t.assignedTo===u.id));
-  const notifCount = alerts.dueToday.length + alerts.overdue.length + (isAdmin()?alerts.unassigned.length:0);
+  const notifCount = alerts.dueToday.length + alerts.overdue.length + (isAdmin()?alerts.unassigned.length + alerts.pendingApproval.length:0);
 
   return '' +
   '<aside class="sidebar">' +
@@ -968,6 +988,7 @@ function renderNotifPanel(a){
     row(a.dueToday,'due today','--warn','today','clock') +
     row(a.dueTomorrow,'due tomorrow','--info','tomorrow','calendar') +
     row(a.critical,'critical task'+(a.critical.length===1?'':'s')+' need attention','--bad','critical','sparkle') +
+    (isAdmin() ? row(a.pendingApproval,'task'+(a.pendingApproval.length===1?'':'s')+' awaiting your approval','--gold','pendingApproval','check') : '') +
     (isAdmin() ? row(a.unassigned,'task'+(a.unassigned.length===1?'':'s')+' unassigned','--neutral-status','unassigned','inbox') : '');
   return '<div class="notif-panel">' + (rows || '<div class="notif-item muted">All clear — nothing needs attention.</div>') + '</div>';
 }
@@ -980,6 +1001,7 @@ function goToAlert(kind){
   if (kind==='critical') state.taskFilters.quick = 'Critical';
   if (kind==='tomorrow') state.taskFilters.quick = 'Tomorrow';
   if (kind==='unassigned') state.taskFilters.employee = 'Unassigned';
+  if (kind==='pendingApproval') state.taskFilters.status = 'Pending Approval';
   render();
 }
 function escAttr(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
@@ -1082,13 +1104,19 @@ function viewDashboardAdmin(){
     '<div class="page-actions"><button class="btn btn-primary" onclick="openCreateTask()">'+icon('plus',14)+' Create Task</button></div>' +
   '</div>' +
 
-  (alerts.dueToday.length+alerts.overdue.length+alerts.dueTomorrow.length+alerts.critical.length+alerts.unassigned.length > 0 ?
+  (alerts.dueToday.length+alerts.overdue.length+alerts.dueTomorrow.length+alerts.critical.length+alerts.unassigned.length+alerts.pendingApproval.length > 0 ?
   '<div class="card card-pad" style="margin-bottom:16px"><div class="card-title-sm" style="margin-bottom:8px">Smart Alerts</div><div class="flex gap-8" style="flex-wrap:wrap">' +
     (alerts.overdue.length? '<span class="chip-filter" style="color:var(--bad);border-color:var(--bad-soft);background:var(--bad-soft)" onclick="goToAlert(\'overdue\')">'+alerts.overdue.length+' task'+(alerts.overdue.length===1?'':'s')+' overdue</span>':'') +
+    (alerts.pendingApproval.length? '<span class="chip-filter" style="color:var(--gold);border-color:var(--gold-soft);background:var(--gold-soft)" onclick="goToAlert(\'pendingApproval\')">'+alerts.pendingApproval.length+' awaiting your approval</span>':'') +
     (alerts.dueToday.length? '<span class="chip-filter" style="color:var(--warn);border-color:var(--warn-soft);background:var(--warn-soft)" onclick="goToAlert(\'today\')">'+alerts.dueToday.length+' due today</span>':'') +
     (alerts.dueTomorrow.length? '<span class="chip-filter" onclick="goToAlert(\'tomorrow\')">'+alerts.dueTomorrow.length+' due tomorrow</span>':'') +
     (alerts.critical.length? '<span class="chip-filter" style="color:var(--bad);border-color:var(--bad-soft);background:var(--bad-soft)" onclick="goToAlert(\'critical\')">'+alerts.critical.length+' critical task'+(alerts.critical.length===1?'':'s')+' need attention</span>':'') +
     (alerts.unassigned.length? '<span class="chip-filter" onclick="goToAlert(\'unassigned\')">'+alerts.unassigned.length+' unassigned</span>':'') +
+  '</div></div>' : '') +
+
+  (alerts.pendingApproval.length ?
+  '<div class="card" style="margin-bottom:16px;border-color:var(--gold)"><div class="card-head"><span class="card-title" style="color:var(--gold)">Pending Approvals</span><span class="sub">'+alerts.pendingApproval.length+' waiting on you</span></div><div class="card-pad">' +
+    alerts.pendingApproval.map(t => pendingApprovalRow(t)).join('') +
   '</div></div>' : '') +
 
   '<div class="grid grid-kpi" style="margin-bottom:16px">' +
@@ -1137,6 +1165,18 @@ function priorityRow(t){
     '<div style="flex:1;min-width:0"><div style="font-weight:700;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+t.name+'</div><div class="sub">'+(emp?emp.name:'Unassigned')+' · '+t.project+'</div></div>' +
     priorityPill(t.priority) +
     '<span class="sub" style="width:80px;text-align:right">'+daysRemainingLabel(t)+'</span>' +
+  '</div>';
+}
+function pendingApprovalRow(t){
+  const emp = DB.employees.find(e=>e.id===t.assignedTo);
+  return '<div class="flex gap-10" style="padding:9px 0;border-bottom:1px solid var(--border)">' +
+    (emp?avatar(emp,24):'<span class="avatar" style="width:24px;height:24px;background:var(--neutral-status)">—</span>') +
+    '<div style="flex:1;min-width:0;cursor:pointer" onclick="openTaskDetail(\''+t.id+'\')">' +
+      '<div style="font-weight:700;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+t.name+'</div>' +
+      '<div class="sub">'+(emp?emp.name:'—')+' · '+t.project+(t.completionDate?' · submitted '+fmtDateTime(t.completionDate):'')+'</div>' +
+    '</div>' +
+    '<button class="btn btn-sm btn-primary" onclick="approveTask(\''+t.id+'\')">'+icon('check',12)+' Approve</button>' +
+    '<button class="btn btn-sm btn-ghost" onclick="openTaskDetail(\''+t.id+'\')">Review</button>' +
   '</div>';
 }
 function highlightRow(label, entry, warnStyle, metric){
@@ -1680,32 +1720,57 @@ function saveTaskForm(id){
 }
 
 /* ---- Task Detail (progress, status, comments, completion) ---- */
-function openTaskDetail(id){ state.modal = { type:'taskDetail', taskId:id, showCompletionPrompt:false }; state.notifOpen = false; render(); }
+function openTaskDetail(id){ state.modal = { type:'taskDetail', taskId:id, showCompletionPrompt:false, showRejectPrompt:false }; state.notifOpen = false; render(); }
 function setProgress(id, val){
   const t = DB.tasks.find(x => x.id===id);
   if (!canUpdateProgress(t)) return;
   if (val === 100){ state.modal.showCompletionPrompt = true; render(); return; }
   const patch = { progress: val };
   if (t.status === 'Not Started' && val > 0) patch.status = 'In Progress';
-  if (t.status === 'Completed' && val < 100){ patch.status = val > 0 ? 'In Progress' : 'Not Started'; patch.completionDate = null; }
+  if ((t.status === 'Completed' || t.status === 'Pending Approval') && val < 100){ patch.status = val > 0 ? 'In Progress' : 'Not Started'; patch.completionDate = null; }
   DB.updateTask(id, patch);
   render();
 }
 function confirmCompletion(id){
   const notes = document.getElementById('completion-notes').value.trim();
-  DB.updateTask(id, { progress:100, status:'Completed', completionDate:new Date().toISOString(), completionNotes:notes });
-  DB.addComment(id, notes || 'Marked as complete.', currentUser().id, 'completion');
-  state.modal.showCompletionPrompt = false;
-  showToast('Task marked complete');
+  if (isAdmin()){
+    DB.updateTask(id, { progress:100, status:'Completed', completionDate:new Date().toISOString(), completionNotes:notes });
+    DB.addComment(id, notes || 'Marked as complete.', currentUser().id, 'completion');
+    state.modal.showCompletionPrompt = false;
+    showToast('Task marked complete');
+  } else {
+    DB.updateTask(id, { progress:100, status:'Pending Approval', completionDate:new Date().toISOString(), completionNotes:notes });
+    DB.addComment(id, notes || 'Submitted for manager approval.', currentUser().id, 'completion');
+    state.modal.showCompletionPrompt = false;
+    showToast('Submitted for approval');
+  }
 }
 function cancelCompletionPrompt(){ state.modal.showCompletionPrompt = false; render(); }
+function approveTask(id){
+  const t = DB.tasks.find(x => x.id===id);
+  if (!isAdmin() || !t || t.status !== 'Pending Approval') return;
+  DB.updateTask(id, { status:'Completed' });
+  DB.addComment(id, 'Approved by ' + currentUser().name + '.', currentUser().id, 'approval');
+  showToast('Task approved');
+}
+function rejectTask(id){ state.modal.showRejectPrompt = true; render(); }
+function cancelReject(){ state.modal.showRejectPrompt = false; render(); }
+function confirmReject(id){
+  const t = DB.tasks.find(x => x.id===id);
+  if (!isAdmin() || !t || t.status !== 'Pending Approval') return;
+  const reason = document.getElementById('reject-reason').value.trim();
+  DB.updateTask(id, { status:'In Progress', progress:75, completionDate:null });
+  DB.addComment(id, reason ? ('Sent back for rework: ' + reason) : 'Sent back for rework.', currentUser().id, 'approval');
+  state.modal.showRejectPrompt = false;
+  showToast('Sent back to the assignee');
+}
 function setTaskStatus(id, status){
   const t = DB.tasks.find(x => x.id===id);
   if (!canUpdateProgress(t)) return;
   if (status === 'Completed'){ state.modal.showCompletionPrompt = true; render(); return; }
   const patch = { status };
   if (status === 'Not Started') patch.progress = 0;
-  if (t.status === 'Completed' && status !== 'Completed') patch.completionDate = null;
+  if ((t.status === 'Completed' || t.status === 'Pending Approval') && status !== 'Completed') patch.completionDate = null;
   DB.updateTask(id, patch);
   render();
 }
@@ -1719,13 +1784,27 @@ function addTaskComment(id){
 function detailField(label, value){ return '<div class="flex-between" style="font-size:12.5px;padding:3px 0"><span class="muted">'+label+'</span><span style="font-weight:600;text-align:right">'+value+'</span></div>'; }
 function commentBlock(c){
   const author = DB.employees.find(e => e.id===c.authorId);
-  return '<div class="comment"><div class="meta">'+(author?author.name:'Unknown')+' · '+fmtDateTime(c.at)+(c.type==='completion'?' · Completion note':'')+'</div>'+escHtml(c.text)+'</div>';
+  const typeLabel = c.type==='completion' ? ' · Completion note' : c.type==='approval' ? ' · Approval' : '';
+  return '<div class="comment"><div class="meta">'+(author?author.name:'Unknown')+' · '+fmtDateTime(c.at)+typeLabel+'</div>'+escHtml(c.text)+'</div>';
 }
 function completionPromptBlock(t){
+  const admin = isAdmin();
   return '<div class="card" style="background:var(--accent-soft);border-color:var(--accent);padding:10px;margin-top:4px">' +
-    '<div style="font-weight:700;font-size:12.5px;margin-bottom:6px">Mark as complete — add completion notes</div>' +
+    '<div style="font-weight:700;font-size:12.5px;margin-bottom:6px">'+(admin?'Mark as complete':'Submit for approval')+' — add completion notes</div>' +
+    (admin ? '' : '<div class="sub" style="margin-bottom:6px">This will go to your manager for approval before it counts as completed.</div>') +
     '<textarea id="completion-notes" class="field" rows="2" placeholder="What was delivered? Any follow-ups?"></textarea>' +
-    '<div class="flex gap-8" style="margin-top:8px"><button class="btn btn-sm btn-primary" onclick="confirmCompletion(\''+t.id+'\')">Confirm Completion</button><button class="btn btn-sm btn-ghost" onclick="cancelCompletionPrompt()">Cancel</button></div>' +
+    '<div class="flex gap-8" style="margin-top:8px"><button class="btn btn-sm btn-primary" onclick="confirmCompletion(\''+t.id+'\')">'+(admin?'Confirm Completion':'Submit for Approval')+'</button><button class="btn btn-sm btn-ghost" onclick="cancelCompletionPrompt()">Cancel</button></div>' +
+  '</div>';
+}
+function approvalActionBlock(t){
+  return '<div class="card" style="background:var(--gold-soft);border-color:var(--gold);padding:10px;margin-top:4px">' +
+    '<div style="font-weight:700;font-size:12.5px;margin-bottom:6px;color:var(--gold)">Awaiting your approval</div>' +
+    (state.modal.showRejectPrompt ?
+      ('<textarea id="reject-reason" class="field" rows="2" placeholder="What needs to change? (optional)"></textarea>' +
+       '<div class="flex gap-8" style="margin-top:8px"><button class="btn btn-sm btn-danger" onclick="confirmReject(\''+t.id+'\')">Confirm Send Back</button><button class="btn btn-sm btn-ghost" onclick="cancelReject()">Cancel</button></div>')
+    :
+      ('<div class="flex gap-8"><button class="btn btn-sm btn-primary" onclick="approveTask(\''+t.id+'\')">'+icon('check',12)+' Approve</button><button class="btn btn-sm btn-danger" onclick="rejectTask(\''+t.id+'\')">Send Back</button></div>')
+    ) +
   '</div>';
 }
 function renderTaskDetailModal(taskId){
@@ -1734,6 +1813,7 @@ function renderTaskDetailModal(taskId){
   const assignee = DB.employees.find(e => e.id===t.assignedTo);
   const assignedBy = DB.employees.find(e => e.id===t.assignedBy);
   const editable = canUpdateProgress(t);
+  const statusOptions = isAdmin() ? STATUSES : (MEMBER_STATUSES.includes(t.status) ? MEMBER_STATUSES : MEMBER_STATUSES.concat([t.status]));
   return '<div class="modal-overlay" onclick="if(event.target===this) closeModal()"><div class="modal wide">' +
     '<div class="modal-head"><div><h3>'+t.name+'</h3><div class="sub mono">'+t.id+'</div></div>' +
       '<div class="flex gap-8">' + (isAdmin()?('<button class="btn btn-sm btn-ghost" onclick="openEditTask(\''+t.id+'\')">'+icon('edit',13)+' Edit</button>'):'') + '<span class="close-x" onclick="closeModal()">'+icon('x',15)+'</span></div>' +
@@ -1750,17 +1830,18 @@ function renderTaskDetailModal(taskId){
           detailField('Created', fmtDate(t.createdDate)) + detailField('Start Date', fmtDate(t.startDate)) +
           detailField('Due Date', fmtDate(t.dueDate)) + detailField('Days Remaining', daysRemainingLabel(t)) +
           detailField('Estimated Time', t.estimatedHours+' hrs') + detailField('Actual Time', t.actualHours!=null?t.actualHours+' hrs':'—') +
-          (t.completionDate ? detailField('Completed', fmtDateTime(t.completionDate)) : '') +
+          (t.completionDate ? detailField(t.status==='Pending Approval'?'Submitted':'Completed', fmtDateTime(t.completionDate)) : '') +
         '</div>' +
         '<div class="stack">' +
           '<div class="card-title-sm">Progress</div>' +
           '<div class="progress-track lg"><div class="progress-fill" style="width:'+t.progress+'%"></div></div>' +
           '<div class="flex gap-6" style="flex-wrap:wrap">' + [0,25,50,75,100].map(v=>'<button class="btn btn-sm '+(t.progress===v?'btn-primary':'')+'" '+(editable?'':'disabled')+' onclick="setProgress(\''+t.id+'\','+v+')">'+v+'%</button>').join('') + '</div>' +
           (state.modal.showCompletionPrompt ? completionPromptBlock(t) : '') +
+          (isAdmin() && t.status==='Pending Approval' ? approvalActionBlock(t) : '') +
           '<div class="divider"></div>' +
           '<div class="card-title-sm">Status</div>' +
           '<select '+(editable?'':'disabled')+' onchange="setTaskStatus(\''+t.id+'\', this.value)">' +
-            (isAdmin()?STATUSES:['Not Started','In Progress','On Hold']).map(s=>'<option '+(t.status===s?'selected':'')+'>'+s+'</option>').join('') +
+            statusOptions.map(s=>'<option '+(t.status===s?'selected':'')+'>'+s+'</option>').join('') +
           '</select>' +
           (t.completionNotes ? ('<div class="divider"></div><div class="card-title-sm">Completion Notes</div><div class="comment">'+escHtml(t.completionNotes)+'</div>') : '') +
           '<div class="divider"></div>' +
