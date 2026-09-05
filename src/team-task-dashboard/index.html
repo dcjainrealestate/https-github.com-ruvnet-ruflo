@@ -26,23 +26,9 @@
     --font-ui:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
     --font-mono:ui-monospace,"SF Mono","Cascadia Mono","Roboto Mono",Menlo,Consolas,monospace;
   }
-  @media (prefers-color-scheme: dark){
-    :root:not([data-theme="light"]){
-      --bg:#16181B; --bg-inset:#101214; --surface:rgba(32,36,41,.58); --surface-2:rgba(32,36,41,.38);
-      --surface-solid:#1D2024; --surface-modal:rgba(29,32,36,.94);
-      --border:rgba(255,255,255,.10); --border-strong:rgba(255,255,255,.18);
-      --ink:#ECEEF1; --ink-soft:#B6BBC2; --ink-faint:#838993;
-      --accent:#FFAA4D; --accent-strong:#FFC178; --accent-soft:rgba(255,170,77,.17); --accent-ink:#241505;
-      --gold:#D8A857; --gold-soft:rgba(216,168,87,.16);
-      --good:#4FBE7E; --good-soft:rgba(79,190,126,.16);
-      --warn:#D9A159; --warn-soft:rgba(217,161,89,.16);
-      --bad:#E17272; --bad-soft:rgba(225,114,114,.16);
-      --info:#7CA6E0; --info-soft:rgba(124,166,224,.16);
-      --neutral-status:#9AA1AA; --neutral-soft:rgba(154,161,170,.16);
-      --glow-1:rgba(255,170,77,.16); --glow-2:rgba(255,255,255,.045); --glow-3:rgba(255,170,77,.08);
-      --shadow:0 1px 2px rgba(0,0,0,.4),0 14px 34px rgba(0,0,0,.45);
-    }
-  }
+  /* This app always uses the light/saffron brand theme regardless of the
+     device's OS dark-mode setting. The rule below only applies if a
+     future manual toggle explicitly sets data-theme="dark" on <html>. */
   :root[data-theme="dark"]{
     --bg:#16181B; --bg-inset:#101214; --surface:rgba(32,36,41,.58); --surface-2:rgba(32,36,41,.38);
     --surface-solid:#1D2024; --surface-modal:rgba(29,32,36,.94);
