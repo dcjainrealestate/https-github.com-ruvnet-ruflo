@@ -1109,7 +1109,8 @@ function signOut(){
 function renderAccessGate(){
   return '<div style="min-height:100vh;width:100%;display:flex;align-items:center;justify-content:center;padding:24px;background:var(--bg)">' +
     '<div class="card card-pad" style="max-width:380px;width:100%;text-align:center">' +
-      '<div class="brand-mark" style="margin:0 auto 14px">DJ</div>' +
+      '<img src="assets/logo.png" alt="DC Jain Real Estate" style="max-width:220px;width:100%;height:auto;margin:0 auto 16px;display:block" />' +
+      '<div style="font-weight:800;font-size:15px;letter-spacing:.01em;margin-bottom:14px">DC JAIN REAL ESTATE TASK MANAGEMENT SYSTEM</div>' +
       '<div style="font-weight:800;font-size:16px;margin-bottom:6px">Enter your access code</div>' +
       '<div class="sub" style="margin-bottom:16px">Your manager gave you a short code — type it below to open your own dashboard. Managers use their own code the same way.</div>' +
       '<input id="access-code-input" class="field" style="width:100%;text-align:center;font-size:15px;letter-spacing:.04em;padding:10px" placeholder="e.g. 7m9g-v51l" value="'+escAttr(state.accessAttempt||'')+'" onkeydown="if(event.key===\'Enter\') submitAccessCode()" />' +
