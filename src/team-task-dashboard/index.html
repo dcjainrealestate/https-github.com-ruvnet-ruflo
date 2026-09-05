@@ -819,6 +819,15 @@ function csvDownload(filename, headers, rows){
     });
     return;
   }
+  // No downloads capability: if this document is embedded (window !== top,
+  // as it is inside the artifact viewer), a blob/<a download> link is
+  // silently blocked by the host — clicking it would look like it worked
+  // but save nothing, so say so honestly instead of a false "Exported" toast.
+  // Only a genuine top-level page (opened as a standalone file) can use it.
+  if (window !== window.top){
+    showToast('CSV export isn\'t available while shared this way — use Print instead');
+    return;
+  }
   csvDownloadRaw(filename, csv);
 }
 function printReport(){ try { window.print(); } catch(e){ showToast('Use your browser\'s print shortcut (Ctrl/Cmd+P)'); } }
