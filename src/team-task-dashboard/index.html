@@ -1129,7 +1129,7 @@ async function sendMagicLink(){
   const redirectTo = window.location.origin + window.location.pathname;
   const { error } = await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: true, emailRedirectTo: redirectTo } });
   state.emailSending = false;
-  if (error){ state.emailError = 'Could not send the link — check your connection and try again.'; render(); return; }
+  if (error){ state.emailError = 'Could not send the link: ' + (error.message || 'unknown error') + (error.status ? ' (status ' + error.status + ')' : ''); render(); return; }
   state.emailLinkSent = true;
   render();
 }
