@@ -831,7 +831,7 @@ function companyStats(taskList){
 
 function leaderboard(y, m, opts){
   opts = opts || {};
-  let members = DB.employees.filter(e => e.role === 'member' && e.active);
+  let members = DB.employees.filter(e => e.active);
   if (opts.dept && opts.dept !== 'All') members = members.filter(e => e.department === opts.dept);
   if (opts.employee && opts.employee !== 'All') members = members.filter(e => e.id === opts.employee);
   return members.map(e => {
@@ -1627,7 +1627,7 @@ function viewTaskList(opts){
     selectFilter('status', ['All'].concat(STATUSES), f.status, 'Status') +
     selectFilter('dept', ['All'].concat(DB.departments), f.dept, 'Department') +
     selectFilter('project', ['All'].concat(DB.projects), f.project, 'Project') +
-    (scope==='all' ? selectFilter('employee', ['All','Unassigned'].concat(DB.employees.filter(e=>e.role==='member').map(e=>e.id)), f.employee, 'Employee', empLabelMap()) : '') +
+    (scope==='all' ? selectFilter('employee', ['All','Unassigned'].concat(DB.employees.map(e=>e.id)), f.employee, 'Employee', empLabelMap()) : '') +
     selectFilter('priority', ['All'].concat(PRIORITIES), f.priority, 'Priority') +
     selectFilter('level', ['All','1','2','3','4'], f.level, 'Level', {'1':'Level 1','2':'Level 2','3':'Level 3','4':'Level 4'}) +
     '<button class="btn btn-sm btn-ghost" onclick="resetTaskFilters()">'+icon('x',12)+' Clear</button>' +
@@ -1862,7 +1862,7 @@ function teamRow(e){
     '<td class="sub">'+fmtDate(e.joinDate)+'</td>' +
     '<td>'+(e.active?'<span class="pill pill-status-completed">Active</span>':'<span class="pill pill-status-cancelled">Inactive</span>')+'</td>' +
     '<td class="num">'+active+'</td><td class="num">'+totalCompleted+'</td>' +
-    '<td class="num" style="font-weight:800">'+(e.role==='member'?Math.round(stats.efficiency):'—')+'</td>' +
+    '<td class="num" style="font-weight:800">'+Math.round(stats.efficiency)+'</td>' +
     '<td><div class="flex gap-6">' +
       '<button class="btn btn-sm btn-ghost" onclick="openEditEmployee(\''+e.id+'\')" title="Edit">'+icon('edit',12)+'</button>' +
       (e.role!=='admin' ? deactivateButtonInline(e) : '') +
@@ -2245,7 +2245,7 @@ function viewReports(u){
       reportSelectFilter('dept', ['All'].concat(DB.departments), r.dept, 'Department') +
       reportSelectFilter('project', ['All'].concat(DB.projects), r.project, 'Project') +
       reportSelectFilter('level', ['All','1','2','3','4'], r.level||'All', 'Level', {'1':'Level 1','2':'Level 2','3':'Level 3','4':'Level 4'}) +
-      reportSelectFilter('employee', ['All'].concat(DB.employees.filter(e=>e.role==='member').map(e=>e.id)), r.employee||'All', 'Employee', empLabelMap()) +
+      reportSelectFilter('employee', ['All'].concat(DB.employees.map(e=>e.id)), r.employee||'All', 'Employee', empLabelMap()) +
       '<button class="btn btn-sm" onclick="exportMonthlyCsv_(this)">'+icon('download',13)+' Export CSV</button>' +
       '<button class="btn btn-sm btn-ghost" onclick="printReport()">'+icon('print',13)+' Print</button>' +
     '</div>' +
@@ -2393,20 +2393,20 @@ function renderEmployeeDetailModal(empId){
   const now = todayDate();
   const stats = computeStats(tasksForEmployeeInMonth(e.id, now.getFullYear(), now.getMonth()));
   const allTasks = DB.tasks.filter(t => t.assignedTo===e.id).sort((a,b)=> a.dueDate<b.dueDate?1:-1).slice(0,10);
-  const ai = e.role==='member' ? aiSummary(e, stats, null) : null;
+  const ai = aiSummary(e, stats, null);
   return '<div class="modal-overlay" onclick="if(event.target===this) closeModal()"><div class="modal wide">' +
     '<div class="modal-head"><div class="flex gap-10">'+avatar(e,40)+'<div><h3>'+e.name+'</h3><div class="sub">'+(e.title||e.department)+' · '+e.department+'</div></div></div>' +
       '<div class="flex gap-8">'+(isAdmin()?('<button class="btn btn-sm btn-ghost" onclick="openEditEmployee(\''+e.id+'\')">'+icon('edit',13)+' Edit</button>'):'')+'<span class="close-x" onclick="closeModal()">'+icon('x',15)+'</span></div>' +
     '</div>' +
     '<div class="modal-body">' +
-    (e.role==='member' ? (
+    (
       '<div class="grid grid-2" style="gap:20px;align-items:start;margin-bottom:16px">' +
         '<div class="stack"><div class="flex gap-14">'+scoreRing(stats.efficiency,64)+'<div><div class="card-title">Efficiency — '+monthLabel(now.getFullYear(),now.getMonth())+'</div><div class="sub">Transparent breakdown</div></div></div>' + efficiencyBreakdownCard(stats) + '</div>' +
         '<div class="grid" style="grid-template-columns:repeat(2,1fr);gap:8px">' +
           kpiTile('Assigned', stats.assigned) + kpiTile('Completed', stats.completed) + kpiTile('Pending', stats.pending) + kpiTile('Overdue', stats.overdue,'', stats.overdue>0?'bad':'') +
         '</div>' +
       '</div>'
-    ) : '<div class="empty-state">Admin accounts are excluded from individual performance scoring.</div>') +
+    ) +
     (ai ? (
       '<div class="card card-pad" style="background:var(--surface-2);margin-bottom:16px"><div class="card-title-sm" style="margin-bottom:6px">AI Performance Summary</div><div style="font-size:12.5px;margin-bottom:10px">'+ai.summary+'</div>' +
         '<div class="grid" style="grid-template-columns:1fr 1fr;gap:10px">' +
