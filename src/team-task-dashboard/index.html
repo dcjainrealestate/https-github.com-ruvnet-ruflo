@@ -378,7 +378,8 @@ const DB = (function(){
 
   function mapEmployeeRow(row){
     return { id:'E'+row.id, dbId:row.id, name:row.name, role:row.role, department:row.department,
-      title:row.title||'', joinDate:row.join_date, active:row.active, token:row.token, email:row.email||'' };
+      title:row.title||'', joinDate:row.join_date, active:row.active, token:row.token, email:row.email||'',
+      superAdmin: !!row.super_admin };
   }
   function mapTaskRow(row){
     return { id:'T'+String(row.id).padStart(3,'0'), dbId:row.id, name:row.name, description:row.description||'',
@@ -511,7 +512,7 @@ const DB = (function(){
     const token = uniqueToken(e.name);
     const { data, error } = await sb.from('employees').insert({
       name:e.name, role:e.role, department:e.department, title:e.title||null,
-      join_date:e.joinDate, active:e.active!==false, token, email:e.email||null
+      join_date:e.joinDate, active:e.active!==false, token, email:e.email||null, super_admin:e.superAdmin===true
     }).select().single();
     if (error) throw error;
     const mapped = mapEmployeeRow(data);
@@ -524,7 +525,7 @@ const DB = (function(){
     Object.assign(e, patch);
     sb.from('employees').update({
       name:e.name, role:e.role, department:e.department, title:e.title||null,
-      join_date:e.joinDate, active:e.active, email:e.email||null
+      join_date:e.joinDate, active:e.active, email:e.email||null, super_admin:e.superAdmin===true
     }).eq('id', e.dbId).then(({error}) => { if (error) showToast('Could not save that change — check your connection'); });
     return e;
   }
@@ -831,7 +832,7 @@ function companyStats(taskList){
 
 function leaderboard(y, m, opts){
   opts = opts || {};
-  let members = DB.employees.filter(e => e.active);
+  let members = visibleEmployees().filter(e => e.active);
   if (opts.dept && opts.dept !== 'All') members = members.filter(e => e.department === opts.dept);
   if (opts.employee && opts.employee !== 'All') members = members.filter(e => e.id === opts.employee);
   return members.map(e => {
@@ -936,6 +937,21 @@ const state = {
 
 function currentUser(){ return DB.employees.find(e => e.id === state.currentUserId); }
 function isAdmin(){ const u = currentUser(); return !!u && u.role === 'admin'; }
+function isSuperAdmin(){ const u = currentUser(); return !!u && u.role === 'admin' && u.superAdmin === true; }
+// A deputy admin (admin but not super admin) has every super admin's employee
+// record and tasks hidden from them everywhere — team lists, filters, reports,
+// dashboards, notifications. Super admins and regular members are unaffected.
+function visibleEmployees(){
+  if (isAdmin() && !isSuperAdmin()) return DB.employees.filter(e => !e.superAdmin);
+  return DB.employees;
+}
+function visibleTasks(){
+  if (isAdmin() && !isSuperAdmin()){
+    const hiddenIds = DB.employees.filter(e => e.superAdmin).map(e => e.id);
+    return DB.tasks.filter(t => !hiddenIds.includes(t.assignedTo));
+  }
+  return DB.tasks;
+}
 function canEditTask(t){ return isAdmin(); }
 function canUpdateProgress(t){
   if (isAdmin()) return true;
@@ -1097,7 +1113,7 @@ function submitAccessCode(){
   const emp = DB.employees.find(e => e.active && normalizeCode(e.token) === normalizeCode(raw));
   if (!emp){ state.accessError = true; render(); return; }
   state.currentUserId = emp.id;
-  state.locked = emp.role !== 'admin';
+  state.locked = !emp.superAdmin;
   state.accessError = false;
   resetSessionState();
   try { localStorage.setItem('tf_access_code', emp.token); } catch(e){}
@@ -1173,7 +1189,7 @@ function renderEmailGateBody(){
 function renderShell(){
   const u = currentUser();
   if (!u) return renderAccessGate();
-  const alerts = computeAlerts(isAdmin() ? DB.tasks : DB.tasks.filter(t=>t.assignedTo===u.id));
+  const alerts = computeAlerts(isAdmin() ? visibleTasks() : DB.tasks.filter(t=>t.assignedTo===u.id));
   const notifCount = alerts.dueToday.length + alerts.overdue.length + unreadNotificationCount(u) + (isAdmin()?alerts.unassigned.length + alerts.pendingApproval.length:0);
 
   return '' +
@@ -1194,7 +1210,7 @@ function renderShell(){
         ('<div class="role-switch">' +
           '<label>View as</label>' +
           '<select onchange="switchUser(this.value)">' +
-            DB.employees.filter(e=>e.active).map(e => '<option value="'+e.id+'" '+(e.id===u.id?'selected':'')+'>'+e.name+(e.role==='admin'?' (Admin)':'')+'</option>').join('') +
+            visibleEmployees().filter(e=>e.active).map(e => '<option value="'+e.id+'" '+(e.id===u.id?'selected':'')+'>'+e.name+(e.role==='admin'?' (Admin)':'')+'</option>').join('') +
           '</select>' +
         '</div>')
       ) +
@@ -1213,9 +1229,9 @@ function renderTopbar(u, alerts, notifCount){
   const q = state.search.trim().toLowerCase();
   let results = '';
   if (q.length >= 2){
-    const scope = isAdmin() ? DB.tasks : DB.tasks.filter(t=>t.assignedTo===u.id || t.assignedBy===u.id);
+    const scope = isAdmin() ? visibleTasks() : DB.tasks.filter(t=>t.assignedTo===u.id || t.assignedBy===u.id);
     const taskHits = scope.filter(t => (t.name+' '+t.id+' '+t.project+' '+t.department).toLowerCase().includes(q)).slice(0,5);
-    const empHits = isAdmin() ? DB.employees.filter(e => e.name.toLowerCase().includes(q)).slice(0,4) : [];
+    const empHits = isAdmin() ? visibleEmployees().filter(e => e.name.toLowerCase().includes(q)).slice(0,4) : [];
     const projHits = DB.projects.filter(p => p.toLowerCase().includes(q)).slice(0,4);
     if (taskHits.length || empHits.length || projHits.length){
       results = '<div class="notif-panel" style="width:340px">' +
@@ -1377,9 +1393,9 @@ function employeeCard(emp, opts){
    10. DASHBOARD — ADMIN
    ===================================================================== */
 function viewDashboardAdmin(){
-  const cs = companyStats(DB.tasks);
-  const alerts = computeAlerts(DB.tasks);
-  const members = DB.employees.filter(e => e.role==='member' && e.active);
+  const cs = companyStats(visibleTasks());
+  const alerts = computeAlerts(visibleTasks());
+  const members = visibleEmployees().filter(e => e.active && e.id !== currentUser().id);
   const now = todayDate();
   const lb = leaderboard(now.getFullYear(), now.getMonth());
   const best = lb[0], needsAttention = lb.slice().sort((a,b)=>a.stats.efficiency-b.stats.efficiency)[0];
@@ -1390,11 +1406,11 @@ function viewDashboardAdmin(){
   const workload = members.map(e => ({ emp:e, count: DB.tasks.filter(t=>t.assignedTo===e.id && t.status!=='Completed' && t.status!=='Cancelled').length }));
   const maxLoad = Math.max(1, ...workload.map(w=>w.count));
 
-  const priorities = DB.tasks.filter(t => t.status!=='Completed' && t.status!=='Cancelled' && (t.dueDate===todayISO() || t.priority==='Critical') && !isOverdue(t))
+  const priorities = visibleTasks().filter(t => t.status!=='Completed' && t.status!=='Cancelled' && (t.dueDate===todayISO() || t.priority==='Critical') && !isOverdue(t))
     .concat(alerts.overdue).filter((t,i,arr)=>arr.indexOf(t)===i)
     .sort((a,b)=> a.dueDate<b.dueDate?-1:1).slice(0,8);
 
-  const upcoming = DB.tasks.filter(t => t.status!=='Completed' && t.status!=='Cancelled' && t.dueDate>=todayISO() && t.dueDate<=addDaysISO(todayISO(),7))
+  const upcoming = visibleTasks().filter(t => t.status!=='Completed' && t.status!=='Cancelled' && t.dueDate>=todayISO() && t.dueDate<=addDaysISO(todayISO(),7))
     .sort((a,b)=> a.dueDate<b.dueDate?-1:1).slice(0,8);
 
   return '' +
@@ -1609,7 +1625,7 @@ function sortIndicator(field){ return state.taskSort.field===field ? (state.task
 function viewTaskList(opts){
   const u = currentUser();
   const scope = opts.scope;
-  const base = scope==='my' ? DB.tasks.filter(t => t.assignedTo===u.id) : DB.tasks;
+  const base = scope==='my' ? DB.tasks.filter(t => t.assignedTo===u.id) : visibleTasks();
   const filtered = filterTasks(base, scope);
   const f = state.taskFilters;
 
@@ -1627,7 +1643,7 @@ function viewTaskList(opts){
     selectFilter('status', ['All'].concat(STATUSES), f.status, 'Status') +
     selectFilter('dept', ['All'].concat(DB.departments), f.dept, 'Department') +
     selectFilter('project', ['All'].concat(DB.projects), f.project, 'Project') +
-    (scope==='all' ? selectFilter('employee', ['All','Unassigned'].concat(DB.employees.map(e=>e.id)), f.employee, 'Employee', empLabelMap()) : '') +
+    (scope==='all' ? selectFilter('employee', ['All','Unassigned'].concat(visibleEmployees().map(e=>e.id)), f.employee, 'Employee', empLabelMap()) : '') +
     selectFilter('priority', ['All'].concat(PRIORITIES), f.priority, 'Priority') +
     selectFilter('level', ['All','1','2','3','4'], f.level, 'Level', {'1':'Level 1','2':'Level 2','3':'Level 3','4':'Level 4'}) +
     '<button class="btn btn-sm btn-ghost" onclick="resetTaskFilters()">'+icon('x',12)+' Clear</button>' +
@@ -1691,7 +1707,7 @@ function confirmDeleteTask(id){
 function exportTaskCsv(){
   const scope = state.view==='mytasks' ? 'my' : 'all';
   const u = currentUser();
-  const base = scope==='my' ? DB.tasks.filter(t=>t.assignedTo===u.id) : DB.tasks;
+  const base = scope==='my' ? DB.tasks.filter(t=>t.assignedTo===u.id) : visibleTasks();
   const list = filterTasks(base, scope);
   const headers = ['Task ID','Task','Employee','Department','Project','Level','Priority','Status','Created','Due Date','Completed Date','Days Late/Early','Progress %'];
   const rows = list.map(t => {
@@ -1776,7 +1792,7 @@ function calendarDayAgenda(iso, scope){
 }
 function viewCalendar(u){
   const c = state.calendar;
-  const scope = isAdmin() ? DB.tasks : DB.tasks.filter(t => t.assignedTo===u.id);
+  const scope = isAdmin() ? visibleTasks() : DB.tasks.filter(t => t.assignedTo===u.id);
   let label, body;
   if (c.mode === 'month'){ label = monthLabel(c.y,c.m); body = calendarMonthGrid(c.y,c.m,scope); }
   else if (c.mode === 'week'){ const start = startOfWeek(parseISO(c.day)); label = fmtDateShort(toISO(start))+' – '+fmtDateShort(addDaysISO(toISO(start),6))+', '+start.getFullYear(); body = calendarWeekAgenda(start,scope); }
@@ -1817,7 +1833,7 @@ function projectCard(name, s){
 }
 function viewProjects(){
   const cards = DB.projects.map(p => {
-    const list = DB.tasks.filter(t => t.project===p);
+    const list = visibleTasks().filter(t => t.project===p);
     const nonCancelled = list.filter(t => t.status!=='Cancelled');
     const stats = computeStats(list);
     const overdue = nonCancelled.filter(isOverdue).length;
@@ -1870,10 +1886,11 @@ function teamRow(e){
   '</tr>';
 }
 function viewTeam(){
-  return '<div class="page-head"><div><div class="page-title">Team</div><div class="page-sub">'+DB.employees.filter(e=>e.active).length+' active members</div></div>' +
+  const emps = visibleEmployees();
+  return '<div class="page-head"><div><div class="page-title">Team</div><div class="page-sub">'+emps.filter(e=>e.active).length+' active members</div></div>' +
     '<div class="page-actions"><button class="btn btn-primary" onclick="openCreateEmployee()">'+icon('plus',14)+' Add Employee</button></div></div>' +
   '<div class="card"><div class="table-wrap"><table><thead><tr><th>Name</th><th>Role</th><th>Department</th><th>Joined</th><th>Status</th><th>Active Tasks</th><th>Completed</th><th>Efficiency</th><th>Action</th></tr></thead><tbody>' +
-    DB.employees.map(e => teamRow(e)).join('') +
+    emps.map(e => teamRow(e)).join('') +
   '</tbody></table></div></div>';
 }
 
@@ -1909,7 +1926,7 @@ function shareLinkRow(e){
 function shareLinksCard(){
   return '<div class="card"><div class="card-head"><span class="card-title">Personal Access Codes</span></div><div class="card-pad">' +
     '<div class="sub" style="margin-bottom:10px">Everyone opens the exact same artifact link, then types their own code into the "Enter your access code" screen — a URL parameter can\'t be used here because the artifact host does not pass a page\'s query string into it. Your own code, marked "Manager — full access", is the one to keep for yourself; entering it keeps the "View as" switcher so you can still preview anyone\'s dashboard. Every other person\'s code opens straight into their own locked dashboard with the switcher hidden — no field to edit, no menu to click over to a teammate\'s tasks or scores. Codes only exist for people who already existed when the page loaded — anyone added below under Team only exists in your own browser and won\'t have a working code elsewhere until the app is connected to a real backend.</div>' +
-    DB.employees.filter(e => e.active).map(e => shareLinkRow(e)).join('') +
+    visibleEmployees().filter(e => e.active).map(e => shareLinkRow(e)).join('') +
     '<div class="sub" style="margin-top:10px">Heads up: this app has no server, so this stops casual guessing but is not real security — the full dataset still loads in every browser, so someone technical could open dev tools and read past the lock. Genuine per-person access control, and codes for people added after launch, both need a real backend with authentication (see Data & Integrations below).</div>' +
   '</div></div>';
 }
@@ -1949,7 +1966,7 @@ function renderModal(){
 /* ---- Send Notification (admin) ---- */
 function openSendNotification(){ state.notifOpen = false; state.modal = { type:'sendNotification' }; render(); }
 function renderSendNotificationModal(){
-  const recipients = DB.employees.filter(e => e.active && e.id !== currentUser().id);
+  const recipients = visibleEmployees().filter(e => e.active && e.id !== currentUser().id);
   return '<div class="modal-overlay" onclick="if(event.target===this) closeModal()"><div class="modal">' +
     '<div class="modal-head"><h3>Send Notification</h3><span class="close-x" onclick="closeModal()">'+icon('x',15)+'</span></div>' +
     '<div class="modal-body">' +
@@ -1983,7 +2000,7 @@ function openEditTask(id){ state.modal = { type:'taskForm', taskId:id, confirmDe
 function renderTaskFormModal(taskId){
   const t = taskId ? DB.tasks.find(x => x.id===taskId) : null;
   const isEdit = !!t;
-  const activeEmps = DB.employees.filter(e => e.active);
+  const activeEmps = visibleEmployees().filter(e => e.active);
   const assignedByName = isEdit ? (DB.employees.find(e=>e.id===t.assignedBy)||{}).name : currentUser().name;
   return '<div class="modal-overlay" onclick="if(event.target===this) closeModal()"><div class="modal wide">' +
     '<div class="modal-head"><h3>'+(isEdit?'Edit Task':'Create Task')+'</h3><span class="close-x" onclick="closeModal()">'+icon('x',15)+'</span></div>' +
@@ -2245,7 +2262,7 @@ function viewReports(u){
       reportSelectFilter('dept', ['All'].concat(DB.departments), r.dept, 'Department') +
       reportSelectFilter('project', ['All'].concat(DB.projects), r.project, 'Project') +
       reportSelectFilter('level', ['All','1','2','3','4'], r.level||'All', 'Level', {'1':'Level 1','2':'Level 2','3':'Level 3','4':'Level 4'}) +
-      reportSelectFilter('employee', ['All'].concat(DB.employees.map(e=>e.id)), r.employee||'All', 'Employee', empLabelMap()) +
+      reportSelectFilter('employee', ['All'].concat(visibleEmployees().map(e=>e.id)), r.employee||'All', 'Employee', empLabelMap()) +
       '<button class="btn btn-sm" onclick="exportMonthlyCsv_(this)">'+icon('download',13)+' Export CSV</button>' +
       '<button class="btn btn-sm btn-ghost" onclick="printReport()">'+icon('print',13)+' Print</button>' +
     '</div>' +
@@ -2360,6 +2377,7 @@ function renderEmployeeFormModal(empId){
         '<div class="field-group"><label>Department</label><select id="ef-dept">'+DB.departments.map(dpt=>'<option '+((e?e.department:DB.departments[0])===dpt?'selected':'')+'>'+dpt+'</option>').join('')+'</select></div>' +
         '<div class="field-group"><label>Role</label><select id="ef-role"><option value="member" '+(!e||e.role==='member'?'selected':'')+'>Team Member</option><option value="admin" '+(e&&e.role==='admin'?'selected':'')+'>Admin / Manager</option></select></div>' +
       '</div>' +
+      '<div class="field-row single"><div class="field-group"><label style="display:flex;align-items:center;gap:7px;text-transform:none;font-size:12.5px;font-weight:600;color:var(--ink)"><input id="ef-superadmin" type="checkbox" style="width:auto" '+(e&&e.superAdmin?'checked':'')+' /> Super Admin</label><div class="sub" style="margin-top:4px">Only for Admin/Manager roles. Sees every employee and every report with no restrictions, and is hidden from other admins\' views (their tasks/performance won\'t show for anyone but themselves and other super admins).</div></div></div>' +
       '<div class="field-row single"><div class="field-group"><label>Joining Date</label><input id="ef-join" type="date" class="field" value="'+(e?e.joinDate:todayISO())+'" /></div></div>' +
     '</div>' +
     '<div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveEmployeeForm('+(e?"'"+e.id+"'":'null')+')">Save</button></div>' +
@@ -2372,13 +2390,14 @@ async function saveEmployeeForm(id){
   const email = document.getElementById('ef-email').value.trim().toLowerCase();
   const department = document.getElementById('ef-dept').value;
   const role = document.getElementById('ef-role').value;
+  const superAdmin = document.getElementById('ef-superadmin').checked;
   const joinDate = document.getElementById('ef-join').value;
   if (id){
-    DB.updateEmployee(id, {name, title, email, department, role, joinDate});
+    DB.updateEmployee(id, {name, title, email, department, role, superAdmin, joinDate});
     showToast('Employee updated');
   } else {
     try {
-      await DB.addEmployee({name, title, email, department, role, joinDate, active:true});
+      await DB.addEmployee({name, title, email, department, role, superAdmin, joinDate, active:true});
       showToast('Employee added');
     } catch(e){ showToast('Could not add the employee — check your connection and try again'); return; }
   }
@@ -2467,7 +2486,7 @@ async function initApp(){
       const emp = DB.employees.find(e => e.active && e.email && e.email.toLowerCase() === authEmail.toLowerCase());
       if (emp){
         state.currentUserId = emp.id;
-        state.locked = emp.role !== 'admin';
+        state.locked = !emp.superAdmin;
         try { localStorage.setItem('tf_access_code', emp.token); } catch(e){}
         signedInViaEmail = true;
       }
@@ -2478,7 +2497,7 @@ async function initApp(){
     const savedUser = getSavedUser();
     if (savedUser){
       state.currentUserId = savedUser.id;
-      state.locked = savedUser.role !== 'admin';
+      state.locked = !savedUser.superAdmin;
     } else {
       state.currentUserId = null;
       state.locked = true;
