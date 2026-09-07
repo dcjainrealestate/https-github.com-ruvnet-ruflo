@@ -455,7 +455,10 @@ const DB = (function(){
         else {
           const mapped = mapTaskRow(payload.new);
           const existing = tasks.find(t => t.dbId === mapped.dbId);
+          const u = typeof currentUser === 'function' ? currentUser() : null;
+          const justAssignedToMe = u && mapped.assignedTo === u.id && (!existing || existing.assignedTo !== mapped.assignedTo);
           if (existing){ mapped.comments = existing.comments; Object.assign(existing, mapped); } else { tasks.push(mapped); }
+          if (justAssignedToMe) notifyEvent('New task assigned', mapped.name);
         }
         onChange();
       })
@@ -493,7 +496,14 @@ const DB = (function(){
         else {
           const mapped = mapNotificationRow(payload.new);
           const i = notifications.findIndex(n => n.dbId === mapped.dbId);
+          const isNew = i === -1;
           if (i>-1) Object.assign(notifications[i], mapped); else notifications.push(mapped);
+          if (isNew && payload.eventType === 'INSERT'){
+            const u = typeof currentUser === 'function' ? currentUser() : null;
+            if (u && u.id !== mapped.senderId && (mapped.recipientId === null || mapped.recipientId === u.id)){
+              notifyEvent(mapped.title, mapped.body);
+            }
+          }
         }
         onChange();
       })
@@ -996,6 +1006,55 @@ function showToast(msg){
   toastTimer = setTimeout(() => { state.toast = null; render(); }, 2600);
 }
 
+/* ---------- alert sound + browser notification popup ---------- */
+/* Most browsers won't let a fresh AudioContext make sound until the page
+   has seen a real user gesture — grab the very first click/keypress to
+   unlock it so a later realtime event (which fires with no gesture of its
+   own) can still play the chime. */
+let audioCtx = null;
+function ensureAudioCtx(){
+  if (!audioCtx && (window.AudioContext || window.webkitAudioContext)){
+    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e){}
+  }
+  if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume().catch(function(){});
+}
+['pointerdown','keydown'].forEach(function(evt){ document.addEventListener(evt, ensureAudioCtx, { once:true, passive:true }); });
+
+function playNotificationSound(){
+  ensureAudioCtx();
+  if (!audioCtx) return;
+  try {
+    const now = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(880, now);
+    osc.frequency.setValueAtTime(1108.73, now + 0.12);
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(0.25, now + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.start(now); osc.stop(now + 0.42);
+  } catch(e){}
+}
+
+function requestNotificationPermission(){
+  if (!('Notification' in window)) return;
+  if (Notification.permission === 'default') Notification.requestPermission().catch(function(){});
+}
+function showBrowserNotification(title, body){
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  try {
+    const n = new Notification(title, { body: body || '', icon: 'assets/logo.png' });
+    n.onclick = function(){ window.focus(); n.close(); };
+  } catch(e){}
+}
+function notifyEvent(title, body){
+  playNotificationSound();
+  showBrowserNotification(title, body);
+  showToast(title);
+}
+
 function render(){
   const active = document.activeElement;
   const activeId = active && active.id ? active.id : null;
@@ -1145,6 +1204,7 @@ function submitAccessCode(){
   state.accessError = false;
   resetSessionState();
   try { localStorage.setItem('tf_access_code', emp.token); } catch(e){}
+  requestNotificationPermission();
   render();
 }
 function signOut(){
@@ -2569,6 +2629,7 @@ async function initApp(){
       state.locked = true;
     }
   }
+  if (state.currentUserId) requestNotificationPermission();
   render();
 
   // Safety-net refresh on top of the realtime subscription — pulls the
