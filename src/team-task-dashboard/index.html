@@ -386,7 +386,7 @@ const DB = (function(){
       assignedTo: row.assigned_to!=null ? 'E'+row.assigned_to : null, assignedBy: row.assigned_by!=null ? 'E'+row.assigned_by : null,
       department:row.department, project:row.project, createdDate:row.created_date, startDate:row.start_date, dueDate:row.due_date,
       priority:row.priority, level:row.level, status:row.status, estimatedHours:row.estimated_hours, actualHours:row.actual_hours,
-      completionDate:row.completion_date, progress:row.progress, completionNotes:row.completion_notes||'', comments:[] };
+      completionDate:row.completion_date, progress:row.progress, completionNotes:row.completion_notes||'', recurrence:row.recurrence||null, comments:[] };
   }
   function mapCommentRow(row){
     return { id:'C'+row.id, dbId:row.id, taskDbId:row.task_id, text:row.text, authorId: row.author_id!=null ? 'E'+row.author_id : null,
@@ -545,7 +545,7 @@ const DB = (function(){
       department:t.department, project:t.project, created_date:t.createdDate, start_date:t.startDate, due_date:t.dueDate,
       priority:t.priority, level:t.level, status:t.status, estimated_hours:t.estimatedHours, actual_hours:t.actualHours,
       completion_date:t.completionDate, progress: t.progress != null ? t.progress : (t.status==='Completed'?100:0),
-      completion_notes:t.completionNotes||''
+      completion_notes:t.completionNotes||'', recurrence:t.recurrence||null
     }).select().single();
     if (error) throw error;
     const mapped = mapTaskRow(data);
@@ -560,7 +560,7 @@ const DB = (function(){
       name:t.name, description:t.description||'', assigned_to:rawId(t.assignedTo), assigned_by:rawId(t.assignedBy),
       department:t.department, project:t.project, start_date:t.startDate, due_date:t.dueDate,
       priority:t.priority, level:t.level, status:t.status, estimated_hours:t.estimatedHours, actual_hours:t.actualHours,
-      completion_date:t.completionDate, progress:t.progress, completion_notes:t.completionNotes||''
+      completion_date:t.completionDate, progress:t.progress, completion_notes:t.completionNotes||'', recurrence:t.recurrence||null
     }).eq('id', t.dbId).then(({error}) => { if (error) showToast('Could not save that change — check your connection'); });
     return t;
   }
@@ -677,6 +677,17 @@ function parseISO(s){ if(!s) return null; const p=s.split('-').map(Number); retu
 function todayDate(){ const d = new Date(); d.setHours(0,0,0,0); return d; }
 function todayISO(){ return toISO(todayDate()); }
 function addDaysISO(iso, n){ const d = parseISO(iso); d.setDate(d.getDate()+n); return toISO(d); }
+function addMonthsISO(iso, n){ const d = parseISO(iso); const day = d.getDate(); d.setMonth(d.getMonth()+n); if (d.getDate() < day) d.setDate(0); return toISO(d); }
+function addYearsISO(iso, n){ const d = parseISO(iso); d.setFullYear(d.getFullYear()+n); return toISO(d); }
+function advanceDateByRecurrence(iso, recurrence){
+  switch(recurrence){
+    case 'daily': return addDaysISO(iso, 1);
+    case 'weekly': return addDaysISO(iso, 7);
+    case 'monthly': return addMonthsISO(iso, 1);
+    case 'yearly': return addYearsISO(iso, 1);
+    default: return iso;
+  }
+}
 function daysBetween(isoA, isoB){ return Math.round((parseISO(isoB) - parseISO(isoA)) / 86400000); }
 function fmtDate(iso){ if(!iso) return '—'; return parseISO(iso).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); }
 function fmtDateShort(iso){ if(!iso) return '—'; return parseISO(iso).toLocaleDateString('en-US',{month:'short',day:'numeric'}); }
@@ -703,6 +714,8 @@ const STATUSES = ['Not Started','In Progress','On Hold','Pending Approval','Comp
 const MEMBER_STATUSES = ['Not Started','In Progress','On Hold'];
 const STATUS_CLASS = {'Not Started':'notstarted','In Progress':'inprogress','On Hold':'onhold','Pending Approval':'pendingapproval','Completed':'completed','Cancelled':'cancelled'};
 const PRIORITY_CLASS = {'Critical':'critical','High':'high','Medium':'medium','Low':'low'};
+const RECURRENCE_OPTIONS = [{value:'',label:'Does not repeat'},{value:'daily',label:'Daily'},{value:'weekly',label:'Weekly'},{value:'monthly',label:'Monthly'},{value:'yearly',label:'Yearly'}];
+const RECURRENCE_LABELS = {daily:'Daily', weekly:'Weekly', monthly:'Monthly', yearly:'Yearly'};
 
 function isOverdue(t){ return t.status !== 'Completed' && t.status !== 'Cancelled' && t.status !== 'Pending Approval' && t.dueDate < todayISO(); }
 function daysRemaining(t){ return daysBetween(todayISO(), t.dueDate); }
@@ -2106,7 +2119,7 @@ function captureTaskDraftIfOpen(){
   const draft = {
     name: val('tf-name'), desc: val('tf-desc'), assignee: val('tf-assignee'), dept: val('tf-dept'),
     project: val('tf-project'), projectOther: val('tf-project-other'), start: val('tf-start'), due: val('tf-due'),
-    priority: val('tf-priority'), level: val('tf-level'), status: val('tf-status')
+    priority: val('tf-priority'), level: val('tf-level'), status: val('tf-status'), recurrence: val('tf-recurrence')
   };
   try {
     if (draft.name.trim() || draft.desc.trim()) localStorage.setItem(TASK_DRAFT_KEY, JSON.stringify(draft));
@@ -2148,7 +2161,10 @@ function renderTaskFormModal(taskId){
         '<div class="field-group"><label>Priority</label><select id="tf-priority">'+PRIORITIES.map(p=>'<option '+((t?t.priority:(d&&d.priority?d.priority:'Medium'))===p?'selected':'')+'>'+p+'</option>').join('')+'</select></div>' +
         '<div class="field-group"><label>Task Level</label><select id="tf-level">'+[1,2,3,4].map(l=>'<option value="'+l+'" '+((t?t.level:(d&&d.level?Number(d.level):2))===l?'selected':'')+'>Level '+l+' — '+LEVELS[l].label+'</option>').join('')+'</select></div>' +
       '</div>' +
-      '<div class="field-row single"><div class="field-group"><label>Status</label><select id="tf-status">'+(isAdmin()?STATUSES:MEMBER_STATUSES).map(s=>'<option '+((t?t.status:(d&&d.status?d.status:'Not Started'))===s?'selected':'')+'>'+s+'</option>').join('')+'</select></div></div>' +
+      '<div class="field-row">' +
+        '<div class="field-group"><label>Repeat</label><select id="tf-recurrence">'+RECURRENCE_OPTIONS.map(o=>'<option value="'+o.value+'" '+((t?(t.recurrence||''):(d&&d.recurrence?d.recurrence:''))===o.value?'selected':'')+'>'+o.label+'</option>').join('')+'</select></div>' +
+        '<div class="field-group"><label>Status</label><select id="tf-status">'+(isAdmin()?STATUSES:MEMBER_STATUSES).map(s=>'<option '+((t?t.status:(d&&d.status?d.status:'Not Started'))===s?'selected':'')+'>'+s+'</option>').join('')+'</select></div>' +
+      '</div>' +
     '</div>' +
     '<div class="modal-foot">' +
       (isEdit ? (state.modal.confirmDelete ?
@@ -2174,22 +2190,25 @@ async function saveTaskForm(id){
   const priority = document.getElementById('tf-priority').value;
   const level = Number(document.getElementById('tf-level').value);
   const status = document.getElementById('tf-status').value;
+  const recurrence = document.getElementById('tf-recurrence').value || null;
   const desc = document.getElementById('tf-desc').value.trim();
   if (!start || !due){ showToast('Start and due dates are required'); return; }
   if (due < start){ showToast('Due date cannot be before the start date'); return; }
 
   if (id){
     const cur = DB.tasks.find(x => x.id===id);
-    const patch = { name, description:desc, assignedTo:assignee, department:dept, project, startDate:start, dueDate:due, priority, level, status };
+    const wasCompleted = cur.status === 'Completed';
+    const patch = { name, description:desc, assignedTo:assignee, department:dept, project, startDate:start, dueDate:due, priority, level, status, recurrence };
     if (status === 'Completed' && cur.status !== 'Completed'){ patch.completionDate = new Date().toISOString(); patch.progress = 100; }
     else if (status !== 'Completed' && cur.status === 'Completed'){ patch.completionDate = null; patch.progress = 75; }
     DB.updateTask(id, patch);
+    if (status === 'Completed' && !wasCompleted) spawnNextRecurrence(cur);
     showToast('Task updated');
   } else {
     try {
       await DB.addTask({ name, description:desc, assignedTo:assignee, assignedBy:currentUser().id, department:dept, project,
         createdDate:todayISO(), startDate:start, dueDate:due, priority, level, status, estimatedHours:null, actualHours:null,
-        progress: status==='Completed'?100:0, completionDate: status==='Completed'?new Date().toISOString():null, completionNotes:'' });
+        progress: status==='Completed'?100:0, completionDate: status==='Completed'?new Date().toISOString():null, completionNotes:'', recurrence });
       showToast('Task created');
       clearTaskDraft();
     } catch(e){ showToast('Could not save the task — check your connection and try again'); return; }
@@ -2209,12 +2228,29 @@ function setProgress(id, val){
   DB.updateTask(id, patch);
   render();
 }
+function spawnNextRecurrence(t){
+  if (!t || !t.recurrence) return;
+  const nextStart = advanceDateByRecurrence(t.startDate, t.recurrence);
+  const nextDue = advanceDateByRecurrence(t.dueDate, t.recurrence);
+  DB.addTask({
+    name: t.name, description: t.description||'', assignedTo: t.assignedTo, assignedBy: t.assignedBy,
+    department: t.department, project: t.project, createdDate: todayISO(), startDate: nextStart, dueDate: nextDue,
+    priority: t.priority, level: t.level, status: 'Not Started', estimatedHours: null, actualHours: null,
+    progress: 0, completionDate: null, completionNotes: '', recurrence: t.recurrence
+  }).then(function(){
+    showToast('Task completed — next ' + (RECURRENCE_LABELS[t.recurrence]||'').toLowerCase() + ' occurrence created, due ' + fmtDate(nextDue));
+  }).catch(function(){
+    showToast('Task completed, but the next recurring occurrence could not be created');
+  });
+}
 function confirmCompletion(id){
   const notes = document.getElementById('completion-notes').value.trim();
+  const t = DB.tasks.find(x => x.id===id);
   if (isAdmin()){
     DB.updateTask(id, { progress:100, status:'Completed', completionDate:new Date().toISOString(), completionNotes:notes });
     DB.addComment(id, notes || 'Marked as complete.', currentUser().id, 'completion');
     state.modal.showCompletionPrompt = false;
+    if (t) spawnNextRecurrence(t);
     showToast('Task marked complete');
   } else {
     DB.updateTask(id, { progress:100, status:'Pending Approval', completionDate:new Date().toISOString(), completionNotes:notes });
@@ -2229,6 +2265,7 @@ function approveTask(id){
   if (!isAdmin() || !t || t.status !== 'Pending Approval') return;
   DB.updateTask(id, { status:'Completed' });
   DB.addComment(id, 'Approved by ' + currentUser().name + '.', currentUser().id, 'approval');
+  spawnNextRecurrence(t);
   showToast('Task approved');
 }
 function rejectTask(id){ state.modal.showRejectPrompt = true; render(); }
@@ -2307,6 +2344,7 @@ function renderTaskDetailModal(taskId){
           detailField('Department', t.department) + detailField('Project / Client', t.project) +
           detailField('Created', fmtDate(t.createdDate)) + detailField('Start Date', fmtDate(t.startDate)) +
           detailField('Due Date', fmtDate(t.dueDate)) + detailField('Days Remaining', daysRemainingLabel(t)) +
+          (t.recurrence ? detailField('Repeats', '🔁 ' + (RECURRENCE_LABELS[t.recurrence]||t.recurrence)) : '') +
           detailField('Estimated Time', t.estimatedHours!=null?t.estimatedHours+' hrs':'—') + detailField('Actual Time', t.actualHours!=null?t.actualHours+' hrs':'—') +
           (t.completionDate ? detailField(t.status==='Pending Approval'?'Submitted':'Completed', fmtDateTime(t.completionDate)) : '') +
         '</div>' +
