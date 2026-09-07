@@ -351,6 +351,11 @@ const DB = (function(){
   const tasks = [];
   const notifications = [];
   const notificationReads = [];
+  // Whether the `recurrence` column exists yet on `tasks` — false until
+  // add_recurrence_column.sql has been run. Detected in fetchAll() so
+  // every insert/update degrades gracefully instead of failing outright
+  // (an unknown column makes PostgREST reject the entire write).
+  let recurrenceSupported = true;
   const deptRows = [];   // internal {dbId, name} — departments/projects are
   const projRows = [];   // plain TEXT columns on tasks/employees, not FKs
 
@@ -437,6 +442,15 @@ const DB = (function(){
     } catch(e){
       console.warn('Notifications feature unavailable — run notifications_migration.sql in Supabase to enable it.', e && e.message);
     }
+
+    // Recurring tasks are also a newer, optional column — probe for it so
+    // addTask/updateTask know whether it's safe to include, rather than
+    // having every task save silently fail against an older schema.
+    try {
+      const { error } = await sb.from('tasks').select('recurrence').limit(1);
+      recurrenceSupported = !error;
+      if (error) console.warn('Recurring tasks unavailable — run add_recurrence_column.sql in Supabase to enable it.', error.message);
+    } catch(e){ recurrenceSupported = false; }
   }
 
   function setupRealtime(onChange){
@@ -540,13 +554,15 @@ const DB = (function(){
     return e;
   }
   async function addTask(t){
-    const { data, error } = await sb.from('tasks').insert({
+    const row = {
       name:t.name, description:t.description||'', assigned_to:rawId(t.assignedTo), assigned_by:rawId(t.assignedBy),
       department:t.department, project:t.project, created_date:t.createdDate, start_date:t.startDate, due_date:t.dueDate,
       priority:t.priority, level:t.level, status:t.status, estimated_hours:t.estimatedHours, actual_hours:t.actualHours,
       completion_date:t.completionDate, progress: t.progress != null ? t.progress : (t.status==='Completed'?100:0),
-      completion_notes:t.completionNotes||'', recurrence:t.recurrence||null
-    }).select().single();
+      completion_notes:t.completionNotes||''
+    };
+    if (recurrenceSupported) row.recurrence = t.recurrence||null;
+    const { data, error } = await sb.from('tasks').insert(row).select().single();
     if (error) throw error;
     const mapped = mapTaskRow(data);
     tasks.push(mapped);
@@ -556,12 +572,14 @@ const DB = (function(){
     const t = tasks.find(x => x.id === id);
     if (!t) return null;
     Object.assign(t, patch);
-    sb.from('tasks').update({
+    const row = {
       name:t.name, description:t.description||'', assigned_to:rawId(t.assignedTo), assigned_by:rawId(t.assignedBy),
       department:t.department, project:t.project, start_date:t.startDate, due_date:t.dueDate,
       priority:t.priority, level:t.level, status:t.status, estimated_hours:t.estimatedHours, actual_hours:t.actualHours,
-      completion_date:t.completionDate, progress:t.progress, completion_notes:t.completionNotes||'', recurrence:t.recurrence||null
-    }).eq('id', t.dbId).then(({error}) => { if (error) showToast('Could not save that change — check your connection'); });
+      completion_date:t.completionDate, progress:t.progress, completion_notes:t.completionNotes||''
+    };
+    if (recurrenceSupported) row.recurrence = t.recurrence||null;
+    sb.from('tasks').update(row).eq('id', t.dbId).then(({error}) => { if (error) showToast('Could not save that change — check your connection'); });
     return t;
   }
   function deleteTask(id){
