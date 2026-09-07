@@ -26,9 +26,8 @@
     --font-ui:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
     --font-mono:ui-monospace,"SF Mono","Cascadia Mono","Roboto Mono",Menlo,Consolas,monospace;
   }
-  /* This app always uses the light/saffron brand theme regardless of the
-     device's OS dark-mode setting. The rule below only applies if a
-     future manual toggle explicitly sets data-theme="dark" on <html>. */
+  /* Theme is a manual per-device choice (the sun/moon toggle in the topbar
+     and access gate), not tied to the OS dark-mode setting. */
   :root[data-theme="dark"]{
     --bg:#16181B; --bg-inset:#101214; --surface:rgba(32,36,41,.58); --surface-2:rgba(32,36,41,.38);
     --surface-solid:#1D2024; --surface-modal:rgba(29,32,36,.94);
@@ -338,6 +337,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
    below — every view reads only through DB.* and the business-logic
    functions in section 2.
    ===================================================================== */
+const DEFAULT_MASCOT = '📁';
 const DB = (function(){
   // Local cache mirroring the real Supabase tables. Every view in this
   // app reads these plain arrays synchronously, same as before — this
@@ -414,7 +414,7 @@ const DB = (function(){
     employees.length = 0; employees.push(...empRes.data.map(mapEmployeeRow));
     deptRows.length = 0; deptRows.push(...deptRes.data.map(r => ({dbId:r.id, name:r.name})));
     departments.length = 0; departments.push(...deptRows.map(r => r.name));
-    projRows.length = 0; projRows.push(...projRes.data.map(r => ({dbId:r.id, name:r.name})));
+    projRows.length = 0; projRows.push(...projRes.data.map(r => ({dbId:r.id, name:r.name, mascot:r.mascot||DEFAULT_MASCOT})));
     projects.length = 0; projects.push(...projRows.map(r => r.name));
     tasks.length = 0; tasks.push(...taskRes.data.map(mapTaskRow));
     commentRes.data.map(mapCommentRow).forEach(c => {
@@ -483,8 +483,8 @@ const DB = (function(){
         if (payload.eventType === 'DELETE'){ const i = projRows.findIndex(r=>r.dbId===payload.old.id); if (i>-1){ projRows.splice(i,1); projects.splice(i,1); } }
         else {
           const i = projRows.findIndex(r => r.dbId === payload.new.id);
-          if (i>-1){ projRows[i].name = payload.new.name; projects[i] = payload.new.name; }
-          else { projRows.push({dbId:payload.new.id, name:payload.new.name}); projects.push(payload.new.name); }
+          if (i>-1){ projRows[i].name = payload.new.name; projRows[i].mascot = payload.new.mascot||DEFAULT_MASCOT; projects[i] = payload.new.name; }
+          else { projRows.push({dbId:payload.new.id, name:payload.new.name, mascot:payload.new.mascot||DEFAULT_MASCOT}); projects.push(payload.new.name); }
         }
         onChange();
       })
@@ -575,14 +575,26 @@ const DB = (function(){
         if (i > -1) t.comments[i] = mapped;
       });
   }
-  function addProject(name){
+  function addProject(name, mascot){
     name = (name||'').trim();
     if (!name || projects.includes(name)) return;
+    mascot = (mascot||'').trim() || DEFAULT_MASCOT;
     projects.push(name);
-    sb.from('projects').insert({ name }).select().single().then(({data, error}) => {
+    sb.from('projects').insert({ name, mascot }).select().single().then(({data, error}) => {
       if (error){ showToast('Could not save that project — check your connection'); return; }
-      projRows.push({dbId:data.id, name:data.name});
+      projRows.push({dbId:data.id, name:data.name, mascot:data.mascot||DEFAULT_MASCOT});
     });
+  }
+  function projectMascot(name){
+    const row = projRows.find(r => r.name === name);
+    return (row && row.mascot) || DEFAULT_MASCOT;
+  }
+  function setProjectMascot(name, mascot){
+    mascot = (mascot||'').trim() || DEFAULT_MASCOT;
+    const row = projRows.find(r => r.name === name);
+    if (!row) return;
+    row.mascot = mascot;
+    sb.from('projects').update({ mascot }).eq('id', row.dbId).then(({error}) => { if (error) showToast('Could not save that mascot — check your connection'); });
   }
   function renameProject(oldName, newName){
     newName = (newName||'').trim();
@@ -641,6 +653,7 @@ const DB = (function(){
   return { employees, departments, projects, tasks, notifications, notificationReads,
     addEmployee, updateEmployee, addTask, updateTask, deleteTask, addComment,
     addProject, renameProject, addDepartment, renameDepartment,
+    projectMascot, setProjectMascot,
     addNotification, markNotificationRead,
     fetchAll, setupRealtime };
 })();
@@ -741,7 +754,9 @@ function icon(name, size){
     arrowdown:'<line x1="8" y1="3" x2="8" y2="13"/><path d="M4.5 9.5L8 13l3.5-3.5"/>',
     inbox:'<path d="M2 9.5h3.2l1 2h3.6l1-2H14"/><path d="M2 9.5 3.6 3h8.8L14 9.5v3A1.5 1.5 0 0 1 12.5 14h-9A1.5 1.5 0 0 1 2 12.5v-3z"/>',
     sparkle:'<path d="M8 2v3M8 11v3M2 8h3M11 8h3M4 4l2 2M10 10l2 2M4 12l2-2M10 6l2-2"/>',
-    menu:'<line x1="2.5" y1="4.5" x2="13.5" y2="4.5"/><line x1="2.5" y1="8" x2="13.5" y2="8"/><line x1="2.5" y1="11.5" x2="13.5" y2="11.5"/>'
+    menu:'<line x1="2.5" y1="4.5" x2="13.5" y2="4.5"/><line x1="2.5" y1="8" x2="13.5" y2="8"/><line x1="2.5" y1="11.5" x2="13.5" y2="11.5"/>',
+    sun:'<circle cx="8" cy="8" r="3"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.5 3.5l1.4 1.4M11.1 11.1l1.4 1.4M3.5 12.5l1.4-1.4M11.1 4.9l1.4-1.4"/>',
+    moon:'<path d="M13.5 9.6A5.8 5.8 0 0 1 6.4 2.5a5.8 5.8 0 1 0 7.1 7.1z"/>'
   };
   return '<svg width="'+size+'" height="'+size+'" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">'+(paths[name]||'')+'</svg>';
 }
@@ -909,6 +924,17 @@ function aiSummary(emp, stats, mom){
    7. APP STATE + RENDER LOOP
    ===================================================================== */
 const today0 = todayDate();
+const THEME_KEY = 'tf_theme';
+function getSavedTheme(){ try { return localStorage.getItem(THEME_KEY) || 'light'; } catch(e){ return 'light'; } }
+function applyTheme(theme){
+  document.documentElement.setAttribute('data-theme', theme === 'dark' ? 'dark' : 'light');
+}
+function toggleTheme(){
+  state.theme = state.theme === 'dark' ? 'light' : 'dark';
+  applyTheme(state.theme);
+  try { localStorage.setItem(THEME_KEY, state.theme); } catch(e){}
+  render();
+}
 const state = {
   currentUserId: null,
   locked: false,
@@ -916,6 +942,7 @@ const state = {
   search: '',
   notifOpen: false,
   sidebarOpen: false,
+  theme: getSavedTheme(),
   authMode: 'code',
   emailAttempt: '',
   emailLinkSent: false,
@@ -934,6 +961,7 @@ const state = {
   settingsDraft: { newDept:'', newProject:'' },
   toast: null
 };
+applyTheme(state.theme);
 
 function currentUser(){ return DB.employees.find(e => e.id === state.currentUserId); }
 function isAdmin(){ const u = currentUser(); return !!u && u.role === 'admin'; }
@@ -1152,7 +1180,8 @@ async function sendMagicLink(){
 function useAnotherEmail(){ state.emailLinkSent = false; state.emailError = null; render(); }
 function renderAccessGate(){
   const mode = state.authMode || 'code';
-  return '<div style="min-height:100vh;width:100%;display:flex;align-items:center;justify-content:center;padding:24px;background:var(--bg)">' +
+  return '<div style="min-height:100vh;width:100%;display:flex;align-items:center;justify-content:center;padding:24px;background:var(--bg);position:relative">' +
+    '<button class="icon-btn" style="position:absolute;top:20px;right:20px" onclick="toggleTheme()" title="'+(state.theme==='dark'?'Switch to light mode':'Switch to dark mode')+'">'+icon(state.theme==='dark'?'sun':'moon',15)+'</button>' +
     '<div class="card card-pad" style="max-width:380px;width:100%;text-align:center">' +
       '<img src="assets/logo.png" alt="DC Jain Real Estate" style="max-width:220px;width:100%;height:auto;margin:0 auto 16px;display:block" />' +
       '<div style="font-weight:800;font-size:15px;letter-spacing:.01em;margin-bottom:14px">DC JAIN REAL ESTATE TASK MANAGEMENT SYSTEM</div>' +
@@ -1251,6 +1280,7 @@ function renderTopbar(u, alerts, notifCount){
       results +
     '</div>' +
     '<div class="topbar-spacer"></div>' +
+    '<button class="icon-btn" onclick="toggleTheme()" title="'+(state.theme==='dark'?'Switch to light mode':'Switch to dark mode')+'">'+icon(state.theme==='dark'?'sun':'moon',15)+'</button>' +
     '<div style="position:relative">' +
       '<button class="icon-btn" onclick="toggleNotif()" title="Notifications">'+icon('bell')+(notifCount>0?'<span class="badge-dot">'+notifCount+'</span>':'')+'</button>' +
       (state.notifOpen ? renderNotifPanel(alerts, u) : '') +
@@ -1642,7 +1672,7 @@ function viewTaskList(opts){
   '<div class="filter-bar">' +
     selectFilter('status', ['All'].concat(STATUSES), f.status, 'Status') +
     selectFilter('dept', ['All'].concat(DB.departments), f.dept, 'Department') +
-    selectFilter('project', ['All'].concat(DB.projects), f.project, 'Project') +
+    selectFilter('project', ['All'].concat(DB.projects), f.project, 'Project', projectLabelMap()) +
     (scope==='all' ? selectFilter('employee', ['All','Unassigned'].concat(visibleEmployees().map(e=>e.id)), f.employee, 'Employee', empLabelMap()) : '') +
     selectFilter('priority', ['All'].concat(PRIORITIES), f.priority, 'Priority') +
     selectFilter('level', ['All','1','2','3','4'], f.level, 'Level', {'1':'Level 1','2':'Level 2','3':'Level 3','4':'Level 4'}) +
@@ -1665,6 +1695,7 @@ function viewTaskList(opts){
   '</div>';
 }
 function empLabelMap(){ const m={}; DB.employees.forEach(e=>m[e.id]=e.name); return m; }
+function projectLabelMap(){ const m={}; DB.projects.forEach(p=>m[p]=DB.projectMascot(p)+' '+p); return m; }
 function selectFilter(key, options, current, label, labelMap){
   return '<select class="field" onchange="setTaskFilter(\''+key+'\', this.value)" title="'+label+'">' +
     options.map(o => '<option value="'+o+'" '+(o===current?'selected':'')+'>'+(o==='All'?'All '+label+'s':(labelMap&&labelMap[o]?labelMap[o]:o))+'</option>').join('') +
@@ -1821,7 +1852,7 @@ function openProjectTasks(p){
 }
 function projectCard(name, s){
   return '<div class="card card-pad" style="cursor:pointer" onclick="openProjectTasks(\''+escAttr(name)+'\')">' +
-    '<div class="flex-between" style="margin-bottom:10px"><span style="font-weight:800;font-size:13.5px">'+name+'</span><span class="pill" style="background:var(--accent-soft);color:var(--accent-strong)">'+s.total+' tasks</span></div>' +
+    '<div class="flex-between" style="margin-bottom:10px"><span class="flex gap-8" style="font-weight:800;font-size:13.5px"><span style="font-size:18px;line-height:1">'+DB.projectMascot(name)+'</span>'+name+'</span><span class="pill" style="background:var(--accent-soft);color:var(--accent-strong)">'+s.total+' tasks</span></div>' +
     '<div class="grid" style="grid-template-columns:repeat(3,1fr);gap:8px;text-align:center;margin-bottom:10px">' +
       '<div><div style="font-weight:800;color:var(--good)" class="num">'+s.completed+'</div><div class="sub">Completed</div></div>' +
       '<div><div style="font-weight:800;color:'+(s.overdue>0?'var(--bad)':'var(--ink)')+'" class="num">'+s.overdue+'</div><div class="sub">Overdue</div></div>' +
@@ -1902,10 +1933,19 @@ function configRow(name, kind){
   if (renaming){
     return '<div class="flex gap-8"><input id="rename-input" class="field" style="flex:1" value="'+escAttr(name)+'" /><button class="btn btn-sm btn-primary" onclick="'+(kind==='dept'?'renameDeptUI':'renameProjectUI')+'(\''+escAttr(name)+'\')">Save</button><button class="btn btn-sm btn-ghost" onclick="state.renaming=null;render();">Cancel</button></div>';
   }
-  return '<div class="flex-between"><span style="font-size:12.5px;font-weight:600">'+name+'</span><button class="btn btn-sm btn-ghost" onclick="state.renaming={kind:\''+kind+'\',name:\''+escAttr(name)+'\'};render();">'+icon('edit',12)+'</button></div>';
+  const mascot = kind==='project' ? '<input class="field" title="Mascot" style="width:34px;text-align:center;padding:6px 4px;flex:0 0 auto" maxlength="2" value="'+escAttr(DB.projectMascot(name))+'" onchange="setProjectMascotUI(\''+escAttr(name)+'\', this.value)" />' : '';
+  return '<div class="flex-between gap-8">' +
+    '<span class="flex gap-8" style="min-width:0">'+mascot+'<span style="font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+name+'</span></span>' +
+    '<button class="btn btn-sm btn-ghost" style="flex:0 0 auto" onclick="state.renaming={kind:\''+kind+'\',name:\''+escAttr(name)+'\'};render();">'+icon('edit',12)+'</button>' +
+  '</div>';
 }
+function setProjectMascotUI(name, mascot){ DB.setProjectMascot(name, mascot); render(); }
 function addDepartmentUI(){ const v = document.getElementById('new-dept-input').value; if (v.trim()){ DB.addDepartment(v); showToast('Department added'); render(); } }
-function addProjectUI(){ const v = document.getElementById('new-project-input').value; if (v.trim()){ DB.addProject(v); showToast('Project added'); render(); } }
+function addProjectUI(){
+  const v = document.getElementById('new-project-input').value;
+  const mascot = document.getElementById('new-project-mascot').value;
+  if (v.trim()){ DB.addProject(v, mascot); showToast('Project added'); render(); }
+}
 function renameDeptUI(oldName){ const v = document.getElementById('rename-input').value; if (v.trim()){ DB.renameDepartment(oldName, v); state.renaming=null; showToast('Department renamed'); render(); } }
 function renameProjectUI(oldName){ const v = document.getElementById('rename-input').value; if (v.trim()){ DB.renameProject(oldName, v); state.renaming=null; showToast('Project renamed'); render(); } }
 
@@ -1941,7 +1981,7 @@ function viewSettings(){
       '</div></div>' +
       '<div class="card"><div class="card-head"><span class="card-title">Projects / Clients</span></div><div class="card-pad stack">' +
         DB.projects.map(p => configRow(p,'project')).join('') +
-        '<div class="flex gap-8" style="margin-top:6px"><input id="new-project-input" class="field" style="flex:1" placeholder="New project name" /><button class="btn btn-sm btn-primary" onclick="addProjectUI()">Add</button></div>' +
+        '<div class="flex gap-8" style="margin-top:6px"><input id="new-project-mascot" class="field" style="width:40px;text-align:center;flex:0 0 auto" maxlength="2" placeholder="'+DEFAULT_MASCOT+'" title="Mascot (optional)" /><input id="new-project-input" class="field" style="flex:1" placeholder="New project name" /><button class="btn btn-sm btn-primary" onclick="addProjectUI()">Add</button></div>' +
       '</div></div>' +
     '</div>' +
     '<div class="card card-pad" style="margin-top:16px">' +
@@ -1995,37 +2035,59 @@ async function submitSendNotification(){
 }
 
 /* ---- Task Form (Create / Edit) ---- */
-function openCreateTask(){ state.modal = { type:'taskForm', taskId:null }; render(); }
+const TASK_DRAFT_KEY = 'tf_task_draft';
+function getTaskDraft(){
+  try { const raw = localStorage.getItem(TASK_DRAFT_KEY); return raw ? JSON.parse(raw) : null; } catch(e){ return null; }
+}
+function clearTaskDraft(){ try { localStorage.removeItem(TASK_DRAFT_KEY); } catch(e){} }
+function captureTaskDraftIfOpen(){
+  if (!state.modal || state.modal.type !== 'taskForm' || state.modal.taskId) return; // only for new-task creation, not edits
+  const val = id => { const el = document.getElementById(id); return el ? el.value : ''; };
+  const draft = {
+    name: val('tf-name'), desc: val('tf-desc'), assignee: val('tf-assignee'), dept: val('tf-dept'),
+    project: val('tf-project'), start: val('tf-start'), due: val('tf-due'), priority: val('tf-priority'),
+    level: val('tf-level'), est: val('tf-est'), status: val('tf-status')
+  };
+  try {
+    if (draft.name.trim() || draft.desc.trim()) localStorage.setItem(TASK_DRAFT_KEY, JSON.stringify(draft));
+    else clearTaskDraft();
+  } catch(e){}
+}
+function cancelTaskForm(){ captureTaskDraftIfOpen(); closeModal(); }
+function discardTaskDraft(){ clearTaskDraft(); state.modal = { type:'taskForm', taskId:null }; render(); }
+function openCreateTask(){ state.modal = { type:'taskForm', taskId:null, draft: getTaskDraft() }; render(); }
 function openEditTask(id){ state.modal = { type:'taskForm', taskId:id, confirmDelete:false }; render(); }
 function renderTaskFormModal(taskId){
   const t = taskId ? DB.tasks.find(x => x.id===taskId) : null;
   const isEdit = !!t;
+  const d = !isEdit ? (state.modal.draft || null) : null;
   const activeEmps = visibleEmployees().filter(e => e.active);
   const assignedByName = isEdit ? (DB.employees.find(e=>e.id===t.assignedBy)||{}).name : currentUser().name;
-  return '<div class="modal-overlay" onclick="if(event.target===this) closeModal()"><div class="modal wide">' +
-    '<div class="modal-head"><h3>'+(isEdit?'Edit Task':'Create Task')+'</h3><span class="close-x" onclick="closeModal()">'+icon('x',15)+'</span></div>' +
+  return '<div class="modal-overlay" onclick="if(event.target===this) cancelTaskForm()"><div class="modal wide">' +
+    '<div class="modal-head"><h3>'+(isEdit?'Edit Task':'Create Task')+'</h3><span class="close-x" onclick="cancelTaskForm()">'+icon('x',15)+'</span></div>' +
     '<div class="modal-body">' +
-      '<div class="field-row single"><div class="field-group"><label>Task Name</label><input id="tf-name" class="field" value="'+escAttr(t?t.name:'')+'" placeholder="e.g. Meta Ads creative refresh — Keystone Seasons" /></div></div>' +
-      '<div class="field-row single"><div class="field-group"><label>Description</label><textarea id="tf-desc" class="field" rows="3" placeholder="What needs to be done">'+escHtml(t?t.description:'')+'</textarea></div></div>' +
+      (d ? '<div class="card-pad" style="background:var(--accent-soft);border-radius:var(--radius-sm);margin-bottom:14px;padding:10px 12px;display:flex;align-items:center;justify-content:space-between;gap:10px"><span style="font-size:12.5px;font-weight:600">Restored your unsaved draft from last time.</span><button class="btn btn-sm btn-ghost" onclick="discardTaskDraft()">Discard draft</button></div>' : '') +
+      '<div class="field-row single"><div class="field-group"><label>Task Name</label><input id="tf-name" class="field" value="'+escAttr(t?t.name:(d?d.name:''))+'" placeholder="e.g. Meta Ads creative refresh — Keystone Seasons" /></div></div>' +
+      '<div class="field-row single"><div class="field-group"><label>Description</label><textarea id="tf-desc" class="field" rows="3" placeholder="What needs to be done">'+escHtml(t?t.description:(d?d.desc:''))+'</textarea></div></div>' +
       '<div class="field-row">' +
-        '<div class="field-group"><label>Assigned To</label><select id="tf-assignee"><option value="">Unassigned</option>'+activeEmps.map(e=>'<option value="'+e.id+'" '+(t&&t.assignedTo===e.id?'selected':'')+'>'+e.name+'</option>').join('')+'</select></div>' +
+        '<div class="field-group"><label>Assigned To</label><select id="tf-assignee"><option value="">Unassigned</option>'+activeEmps.map(e=>'<option value="'+e.id+'" '+((t?t.assignedTo===e.id:(d&&d.assignee===e.id))?'selected':'')+'>'+e.name+'</option>').join('')+'</select></div>' +
         '<div class="field-group"><label>Assigned By</label><input class="field" value="'+escAttr(assignedByName)+'" disabled /></div>' +
       '</div>' +
       '<div class="field-row">' +
-        '<div class="field-group"><label>Department</label><select id="tf-dept">'+DB.departments.map(dpt=>'<option '+((t?t.department:currentUser().department)===dpt?'selected':'')+'>'+dpt+'</option>').join('')+'</select></div>' +
-        '<div class="field-group"><label>Project / Client</label><select id="tf-project">'+DB.projects.map(p=>'<option '+((t&&t.project===p)?'selected':'')+'>'+p+'</option>').join('')+'</select></div>' +
+        '<div class="field-group"><label>Department</label><select id="tf-dept">'+DB.departments.map(dpt=>'<option '+((t?t.department:(d&&d.dept?d.dept:currentUser().department))===dpt?'selected':'')+'>'+dpt+'</option>').join('')+'</select></div>' +
+        '<div class="field-group"><label>Project / Client</label><select id="tf-project">'+DB.projects.map(p=>'<option value="'+escAttr(p)+'" '+((t?t.project===p:(d&&d.project===p))?'selected':'')+'>'+DB.projectMascot(p)+' '+p+'</option>').join('')+'</select></div>' +
       '</div>' +
       '<div class="field-row">' +
-        '<div class="field-group"><label>Start Date</label><input id="tf-start" type="date" class="field" value="'+(t?t.startDate:todayISO())+'" /></div>' +
-        '<div class="field-group"><label>Due Date</label><input id="tf-due" type="date" class="field" value="'+(t?t.dueDate:addDaysISO(todayISO(),5))+'" /></div>' +
+        '<div class="field-group"><label>Start Date</label><input id="tf-start" type="date" class="field" value="'+(t?t.startDate:(d&&d.start?d.start:todayISO()))+'" /></div>' +
+        '<div class="field-group"><label>Due Date</label><input id="tf-due" type="date" class="field" value="'+(t?t.dueDate:(d&&d.due?d.due:addDaysISO(todayISO(),5)))+'" /></div>' +
       '</div>' +
       '<div class="field-row">' +
-        '<div class="field-group"><label>Priority</label><select id="tf-priority">'+PRIORITIES.map(p=>'<option '+((t?t.priority:'Medium')===p?'selected':'')+'>'+p+'</option>').join('')+'</select></div>' +
-        '<div class="field-group"><label>Task Level</label><select id="tf-level">'+[1,2,3,4].map(l=>'<option value="'+l+'" '+((t?t.level:2)===l?'selected':'')+'>Level '+l+' — '+LEVELS[l].label+'</option>').join('')+'</select></div>' +
+        '<div class="field-group"><label>Priority</label><select id="tf-priority">'+PRIORITIES.map(p=>'<option '+((t?t.priority:(d&&d.priority?d.priority:'Medium'))===p?'selected':'')+'>'+p+'</option>').join('')+'</select></div>' +
+        '<div class="field-group"><label>Task Level</label><select id="tf-level">'+[1,2,3,4].map(l=>'<option value="'+l+'" '+((t?t.level:(d&&d.level?Number(d.level):2))===l?'selected':'')+'>Level '+l+' — '+LEVELS[l].label+'</option>').join('')+'</select></div>' +
       '</div>' +
       '<div class="field-row">' +
-        '<div class="field-group"><label>Estimated Time (hrs)</label><input id="tf-est" type="number" min="0" step="0.5" class="field" value="'+(t?t.estimatedHours:4)+'" /></div>' +
-        '<div class="field-group"><label>Status</label><select id="tf-status">'+(isAdmin()?STATUSES:MEMBER_STATUSES).map(s=>'<option '+((t?t.status:'Not Started')===s?'selected':'')+'>'+s+'</option>').join('')+'</select></div>' +
+        '<div class="field-group"><label>Estimated Time (hrs)</label><input id="tf-est" type="number" min="0" step="0.5" class="field" value="'+(t?t.estimatedHours:(d&&d.est?d.est:4))+'" /></div>' +
+        '<div class="field-group"><label>Status</label><select id="tf-status">'+(isAdmin()?STATUSES:MEMBER_STATUSES).map(s=>'<option '+((t?t.status:(d&&d.status?d.status:'Not Started'))===s?'selected':'')+'>'+s+'</option>').join('')+'</select></div>' +
       '</div>' +
     '</div>' +
     '<div class="modal-foot">' +
@@ -2033,7 +2095,7 @@ function renderTaskFormModal(taskId){
           '<span style="margin-right:auto;color:var(--bad);font-weight:700;font-size:12.5px;align-self:center">Delete this task permanently?</span><button class="btn btn-sm btn-danger" onclick="DB.deleteTask(\''+t.id+'\');closeModal();showToast(\'Task deleted\');">Yes, delete</button><button class="btn btn-sm btn-ghost" onclick="state.modal.confirmDelete=false;render();">Cancel</button>'
         : '<button class="btn btn-danger" style="margin-right:auto" onclick="state.modal.confirmDelete=true;render();">Delete Task</button>')
       : '') +
-      (!(isEdit && state.modal.confirmDelete) ? ('<button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveTaskForm('+(isEdit?"'"+t.id+"'":'null')+')">Save Task</button>') : '') +
+      (!(isEdit && state.modal.confirmDelete) ? ('<button class="btn btn-ghost" onclick="cancelTaskForm()">Cancel</button><button class="btn btn-primary" onclick="saveTaskForm('+(isEdit?"'"+t.id+"'":'null')+')">Save Task</button>') : '') +
     '</div>' +
   '</div></div>';
 }
@@ -2066,6 +2128,7 @@ async function saveTaskForm(id){
         createdDate:todayISO(), startDate:start, dueDate:due, priority, level, status, estimatedHours:est, actualHours:null,
         progress: status==='Completed'?100:0, completionDate: status==='Completed'?new Date().toISOString():null, completionNotes:'' });
       showToast('Task created');
+      clearTaskDraft();
     } catch(e){ showToast('Could not save the task — check your connection and try again'); return; }
   }
   closeModal();
@@ -2260,7 +2323,7 @@ function viewReports(u){
     '<div class="filter-bar">' +
       periodSelect('rp', r.year, r.month, 'setReportPeriod') +
       reportSelectFilter('dept', ['All'].concat(DB.departments), r.dept, 'Department') +
-      reportSelectFilter('project', ['All'].concat(DB.projects), r.project, 'Project') +
+      reportSelectFilter('project', ['All'].concat(DB.projects), r.project, 'Project', projectLabelMap()) +
       reportSelectFilter('level', ['All','1','2','3','4'], r.level||'All', 'Level', {'1':'Level 1','2':'Level 2','3':'Level 3','4':'Level 4'}) +
       reportSelectFilter('employee', ['All'].concat(visibleEmployees().map(e=>e.id)), r.employee||'All', 'Employee', empLabelMap()) +
       '<button class="btn btn-sm" onclick="exportMonthlyCsv_(this)">'+icon('download',13)+' Export CSV</button>' +
