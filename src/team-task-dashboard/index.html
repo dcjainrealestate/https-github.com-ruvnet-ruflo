@@ -2570,6 +2570,18 @@ async function initApp(){
     }
   }
   render();
+
+  // Safety-net refresh on top of the realtime subscription — pulls the
+  // latest data every 10 minutes in case a realtime connection was missed
+  // or silently dropped. Skipped while a modal is open so it can't wipe
+  // out an in-progress form.
+  setInterval(async function(){
+    if (state.modal) return;
+    try {
+      await DB.fetchAll();
+      render();
+    } catch(e){ console.error('DC Jain Task Management System: periodic refresh failed', e); }
+  }, 10 * 60 * 1000);
 }
 initApp();
 </script>
