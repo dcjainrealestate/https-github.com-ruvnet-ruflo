@@ -2045,8 +2045,8 @@ function captureTaskDraftIfOpen(){
   const val = id => { const el = document.getElementById(id); return el ? el.value : ''; };
   const draft = {
     name: val('tf-name'), desc: val('tf-desc'), assignee: val('tf-assignee'), dept: val('tf-dept'),
-    project: val('tf-project'), start: val('tf-start'), due: val('tf-due'), priority: val('tf-priority'),
-    level: val('tf-level'), est: val('tf-est'), status: val('tf-status')
+    project: val('tf-project'), projectOther: val('tf-project-other'), start: val('tf-start'), due: val('tf-due'),
+    priority: val('tf-priority'), level: val('tf-level'), status: val('tf-status')
   };
   try {
     if (draft.name.trim() || draft.desc.trim()) localStorage.setItem(TASK_DRAFT_KEY, JSON.stringify(draft));
@@ -2075,7 +2075,10 @@ function renderTaskFormModal(taskId){
       '</div>' +
       '<div class="field-row">' +
         '<div class="field-group"><label>Department</label><select id="tf-dept">'+DB.departments.map(dpt=>'<option '+((t?t.department:(d&&d.dept?d.dept:currentUser().department))===dpt?'selected':'')+'>'+dpt+'</option>').join('')+'</select></div>' +
-        '<div class="field-group"><label>Project / Client</label><select id="tf-project">'+DB.projects.map(p=>'<option value="'+escAttr(p)+'" '+((t?t.project===p:(d&&d.project===p))?'selected':'')+'>'+DB.projectMascot(p)+' '+p+'</option>').join('')+'</select></div>' +
+        '<div class="field-group"><label>Project / Client</label><select id="tf-project" onchange="document.getElementById(\'tf-project-other-row\').style.display=(this.value===\'Other\'?\'\':\'none\')">'+DB.projects.map(p=>'<option value="'+escAttr(p)+'" '+((t?t.project===p:(d&&d.project===p))?'selected':'')+'>'+DB.projectMascot(p)+' '+p+'</option>').join('')+'</select></div>' +
+      '</div>' +
+      '<div class="field-row single" id="tf-project-other-row" style="display:'+((t?t.project==='Other':(d&&d.project==='Other'))?'':'none')+'">' +
+        '<div class="field-group"><label>Custom Project / Client Name</label><input id="tf-project-other" class="field" placeholder="Type the project or client name" value="'+escAttr(d&&d.projectOther?d.projectOther:'')+'" /></div>' +
       '</div>' +
       '<div class="field-row">' +
         '<div class="field-group"><label>Start Date</label><input id="tf-start" type="date" class="field" value="'+(t?t.startDate:(d&&d.start?d.start:todayISO()))+'" /></div>' +
@@ -2085,10 +2088,7 @@ function renderTaskFormModal(taskId){
         '<div class="field-group"><label>Priority</label><select id="tf-priority">'+PRIORITIES.map(p=>'<option '+((t?t.priority:(d&&d.priority?d.priority:'Medium'))===p?'selected':'')+'>'+p+'</option>').join('')+'</select></div>' +
         '<div class="field-group"><label>Task Level</label><select id="tf-level">'+[1,2,3,4].map(l=>'<option value="'+l+'" '+((t?t.level:(d&&d.level?Number(d.level):2))===l?'selected':'')+'>Level '+l+' — '+LEVELS[l].label+'</option>').join('')+'</select></div>' +
       '</div>' +
-      '<div class="field-row">' +
-        '<div class="field-group"><label>Estimated Time (hrs)</label><input id="tf-est" type="number" min="0" step="0.5" class="field" value="'+(t?t.estimatedHours:(d&&d.est?d.est:4))+'" /></div>' +
-        '<div class="field-group"><label>Status</label><select id="tf-status">'+(isAdmin()?STATUSES:MEMBER_STATUSES).map(s=>'<option '+((t?t.status:(d&&d.status?d.status:'Not Started'))===s?'selected':'')+'>'+s+'</option>').join('')+'</select></div>' +
-      '</div>' +
+      '<div class="field-row single"><div class="field-group"><label>Status</label><select id="tf-status">'+(isAdmin()?STATUSES:MEMBER_STATUSES).map(s=>'<option '+((t?t.status:(d&&d.status?d.status:'Not Started'))===s?'selected':'')+'>'+s+'</option>').join('')+'</select></div></div>' +
     '</div>' +
     '<div class="modal-foot">' +
       (isEdit ? (state.modal.confirmDelete ?
@@ -2104,12 +2104,15 @@ async function saveTaskForm(id){
   if (!name){ showToast('Task name is required'); return; }
   const assignee = document.getElementById('tf-assignee').value || null;
   const dept = document.getElementById('tf-dept').value;
-  const project = document.getElementById('tf-project').value;
+  let project = document.getElementById('tf-project').value;
+  if (project === 'Other'){
+    const custom = document.getElementById('tf-project-other').value.trim();
+    if (custom){ DB.addProject(custom); project = custom; }
+  }
   const start = document.getElementById('tf-start').value;
   const due = document.getElementById('tf-due').value;
   const priority = document.getElementById('tf-priority').value;
   const level = Number(document.getElementById('tf-level').value);
-  const est = Number(document.getElementById('tf-est').value) || 0;
   const status = document.getElementById('tf-status').value;
   const desc = document.getElementById('tf-desc').value.trim();
   if (!start || !due){ showToast('Start and due dates are required'); return; }
@@ -2117,7 +2120,7 @@ async function saveTaskForm(id){
 
   if (id){
     const cur = DB.tasks.find(x => x.id===id);
-    const patch = { name, description:desc, assignedTo:assignee, department:dept, project, startDate:start, dueDate:due, priority, level, estimatedHours:est, status };
+    const patch = { name, description:desc, assignedTo:assignee, department:dept, project, startDate:start, dueDate:due, priority, level, status };
     if (status === 'Completed' && cur.status !== 'Completed'){ patch.completionDate = new Date().toISOString(); patch.progress = 100; }
     else if (status !== 'Completed' && cur.status === 'Completed'){ patch.completionDate = null; patch.progress = 75; }
     DB.updateTask(id, patch);
@@ -2125,7 +2128,7 @@ async function saveTaskForm(id){
   } else {
     try {
       await DB.addTask({ name, description:desc, assignedTo:assignee, assignedBy:currentUser().id, department:dept, project,
-        createdDate:todayISO(), startDate:start, dueDate:due, priority, level, status, estimatedHours:est, actualHours:null,
+        createdDate:todayISO(), startDate:start, dueDate:due, priority, level, status, estimatedHours:null, actualHours:null,
         progress: status==='Completed'?100:0, completionDate: status==='Completed'?new Date().toISOString():null, completionNotes:'' });
       showToast('Task created');
       clearTaskDraft();
@@ -2244,7 +2247,7 @@ function renderTaskDetailModal(taskId){
           detailField('Department', t.department) + detailField('Project / Client', t.project) +
           detailField('Created', fmtDate(t.createdDate)) + detailField('Start Date', fmtDate(t.startDate)) +
           detailField('Due Date', fmtDate(t.dueDate)) + detailField('Days Remaining', daysRemainingLabel(t)) +
-          detailField('Estimated Time', t.estimatedHours+' hrs') + detailField('Actual Time', t.actualHours!=null?t.actualHours+' hrs':'—') +
+          detailField('Estimated Time', t.estimatedHours!=null?t.estimatedHours+' hrs':'—') + detailField('Actual Time', t.actualHours!=null?t.actualHours+' hrs':'—') +
           (t.completionDate ? detailField(t.status==='Pending Approval'?'Submitted':'Completed', fmtDateTime(t.completionDate)) : '') +
         '</div>' +
         '<div class="stack">' +
