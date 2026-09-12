@@ -170,6 +170,27 @@ export const confirmTwoFactorSetup = asyncHandler(async (req: Request, res: Resp
   res.status(200).json({ accessToken, twoFactorEnabled: true });
 });
 
+export const getCurrentUser = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) {
+    throw new UnauthorizedError();
+  }
+  const user = await prisma.user.findUnique({ where: { id: req.user.sub } });
+  if (!user) {
+    throw new UnauthorizedError('Account not found');
+  }
+
+  res.status(200).json({
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    isActive: user.isActive,
+    twoFactorEnabled: user.twoFactorEnabled,
+    twoFactorSetupDeadline: user.twoFactorSetupDeadline,
+    canManageFieldVisibility: user.canManageFieldVisibility,
+  });
+});
+
 const GENERIC_FORGOT_PASSWORD_MESSAGE =
   'If an account exists for this email, a password reset link has been sent.';
 
