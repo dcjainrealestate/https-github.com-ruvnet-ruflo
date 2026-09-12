@@ -2,16 +2,17 @@
   "name": "ruflo-resale-inventory",
   "version": "1.0.0",
   "description": "Ready-to-move-in resale inventory management system with RBAC, 2FA, field masking, and dependent fields",
-  "main": "dist/server.js",
+  "main": "dist/src/server.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "start": "node dist/server.js",
+    "start": "node dist/src/server.js",
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "test": "jest --runInBand",
     "lint": "tsc --noEmit",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "seed": "ts-node prisma/seed.ts"
+    "seed": "ts-node prisma/seed.ts",
+    "seed:built": "node dist/prisma/seed.js"
   },
   "dependencies": {
     "@prisma/client": "^5.20.0",
