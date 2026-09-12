@@ -14,7 +14,7 @@ export const env = {
   nodeEnv: process.env.NODE_ENV ?? 'development',
   port: Number(process.env.PORT ?? 4000),
 
-  databaseUrl: required('DATABASE_URL', 'postgresql://user:password@localhost:5432/ruflo_resale'),
+  databaseUrl: required('DATABASE_URL', 'mysql://user:password@localhost:3306/ruflo_resale'),
 
   jwtAccessSecret: required('JWT_ACCESS_SECRET', 'dev-only-insecure-secret'),
   jwtAccessExpiresIn: process.env.JWT_ACCESS_EXPIRES_IN ?? '15m',

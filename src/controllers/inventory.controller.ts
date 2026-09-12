@@ -98,12 +98,15 @@ export const listInventory = asyncHandler(async (req: Request, res: Response) =>
     }
   }
   if (typeof req.query.search === 'string' && req.query.search.length > 0) {
+    // MySQL's default utf8mb4_unicode_ci collation is already
+    // case-insensitive for `contains`, unlike Postgres, so no `mode` option
+    // is needed (and MySQL's Prisma connector doesn't support one).
     const search = req.query.search;
     where.OR = [
-      { customerName: { contains: search, mode: 'insensitive' } },
-      { projectName: { contains: search, mode: 'insensitive' } },
-      { flatNo: { contains: search, mode: 'insensitive' } },
-      { towerNameNo: { contains: search, mode: 'insensitive' } },
+      { customerName: { contains: search } },
+      { projectName: { contains: search } },
+      { flatNo: { contains: search } },
+      { towerNameNo: { contains: search } },
     ];
   }
   // Non-admin roles only see their own submissions; admins/super admins see all.

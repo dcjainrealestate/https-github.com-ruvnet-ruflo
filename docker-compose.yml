@@ -1,16 +1,17 @@
 services:
   db:
-    image: postgres:16-alpine
+    image: mysql:8.0
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: ruflo_resale
+      MYSQL_ROOT_PASSWORD: root_password
+      MYSQL_USER: ruflo
+      MYSQL_PASSWORD: ruflo_password
+      MYSQL_DATABASE: ruflo_resale
     volumes:
-      - db_data:/var/lib/postgresql/data
+      - db_data:/var/lib/mysql
     ports:
-      - "5432:5432"
+      - "3306:3306"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p$$MYSQL_ROOT_PASSWORD"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -20,7 +21,7 @@ services:
       context: .
       dockerfile: Dockerfile
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@db:5432/ruflo_resale
+      DATABASE_URL: mysql://ruflo:ruflo_password@db:3306/ruflo_resale
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-please-change-this-access-secret}
       JWT_TEMP_2FA_SECRET: ${JWT_TEMP_2FA_SECRET:-please-change-this-temp-secret}
       TWO_FACTOR_ISSUER: ${TWO_FACTOR_ISSUER:-Ruflo Resale Inventory}
