@@ -1,0 +1,23 @@
+NODE_ENV=development
+PORT=4000
+
+DATABASE_URL=mysql://user:password@localhost:3306/ruflo_resale
+
+JWT_ACCESS_SECRET=replace-with-strong-random-secret
+JWT_ACCESS_EXPIRES_IN=15m
+JWT_TEMP_2FA_SECRET=replace-with-strong-random-secret
+JWT_TEMP_2FA_EXPIRES_IN=10m
+
+TWO_FACTOR_SETUP_GRACE_DAYS=7
+TWO_FACTOR_ISSUER=Ruflo Resale Inventory
+
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=
+SMTP_PASSWORD=
+SMTP_FROM="Ruflo Resale Inventory <no-reply@ruflo.example.com>"
+
+REMINDER_CRON_SCHEDULE=0 9 * * *
+
+FRONTEND_URL=http://localhost:5173

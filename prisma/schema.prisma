@@ -1,0 +1,218 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  SALES_MEMBER
+  CONTRIBUTOR
+}
+
+// Customer Type stays a fixed enum (rather than an admin-editable FieldOption
+// list) because it structurally drives which price field is required -
+// SELLER -> askingPrice, LESSOR -> expectedRent.
+enum CustomerType {
+  SELLER
+  LESSOR
+}
+
+enum FieldVisibilityMode {
+  VISIBLE
+  MASKED
+  HIDDEN
+}
+
+enum InventoryStatus {
+  ACTIVE
+  SOLD
+  EXPIRED
+  WITHDRAWN
+}
+
+model User {
+  id           String @id @default(cuid())
+  name         String
+  email        String @unique
+  passwordHash String
+  role         Role   @default(CONTRIBUTOR)
+
+  // 2FA (TOTP) - mandatory within 7 days of account creation
+  twoFactorSecret        String?
+  twoFactorEnabled       Boolean  @default(false)
+  twoFactorSetupDeadline DateTime
+  twoFactorTempSecret    String?
+
+  // Delegated rights - granted only by SUPER_ADMIN, only meaningful for ADMIN role
+  canManageFieldVisibility Boolean @default(false)
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  inventories               ResaleInventory[]          @relation("SubmittedBy")
+  fieldOptionsCreated       FieldOption[]              @relation("FieldOptionCreatedBy")
+  dependentFieldDefsCreated DependentFieldDefinition[] @relation("DependentFieldDefCreatedBy")
+  visibilityRulesCreated    FieldVisibilityRule[]      @relation("VisibilityRuleCreatedBy")
+  reminderLogs              ReminderLog[]
+  auditLogs                 AuditLog[]                 @relation("AuditLogActor")
+  passwordResetTokens       PasswordResetToken[]
+}
+
+// Records administrative actions (role changes, masking/hiding rule
+// changes, field option add/remove, dependent field changes) so there is a
+// trail of who changed what and when.
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String
+  actor      User     @relation("AuditLogActor", fields: [actorId], references: [id])
+  action     String
+  targetType String
+  targetId   String
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([targetType, targetId])
+  @@index([actorId])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id])
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+// Generic key/value options for any select-type field (Property Category,
+// Developer Name, Project Name, Sector, etc). SUPER_ADMIN and ADMIN can add
+// or delete values for any fieldKey.
+model FieldOption {
+  id          String   @id @default(cuid())
+  fieldKey    String
+  value       String
+  isActive    Boolean  @default(true)
+  createdById String
+  createdBy   User     @relation("FieldOptionCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+
+  @@unique([fieldKey, value])
+  @@index([fieldKey])
+}
+
+// A parent/child field pairing (e.g. Developer Name -> Project Name,
+// Micro Market -> Sector). Only SUPER_ADMIN / ADMIN can create these.
+model DependentFieldDefinition {
+  id             String   @id @default(cuid())
+  parentFieldKey String
+  childFieldKey  String
+  createdById    String
+  createdBy      User     @relation("DependentFieldDefCreatedBy", fields: [createdById], references: [id])
+  createdAt      DateTime @default(now())
+
+  options DependentFieldOption[]
+
+  @@unique([parentFieldKey, childFieldKey])
+}
+
+// Concrete mapping of "when parent field = X, child field may be Y".
+model DependentFieldOption {
+  id           String                   @id @default(cuid())
+  definitionId String
+  definition   DependentFieldDefinition @relation(fields: [definitionId], references: [id], onDelete: Cascade)
+  parentValue  String
+  childValue   String
+  createdAt    DateTime                 @default(now())
+
+  @@unique([definitionId, parentValue, childValue])
+  @@index([definitionId, parentValue])
+}
+
+// Controls whether a given inventory field is fully visible, masked
+// (partially redacted), or hidden entirely for a given role. Created by
+// SUPER_ADMIN, or by an ADMIN who has been granted canManageFieldVisibility.
+model FieldVisibilityRule {
+  id          String              @id @default(cuid())
+  fieldKey    String
+  role        Role
+  mode        FieldVisibilityMode @default(VISIBLE)
+  createdById String
+  createdBy   User                @relation("VisibilityRuleCreatedBy", fields: [createdById], references: [id])
+  updatedAt   DateTime            @updatedAt
+  createdAt   DateTime            @default(now())
+
+  @@unique([fieldKey, role])
+}
+
+model ResaleInventory {
+  id String @id @default(cuid())
+
+  propertyCategory    String
+  propertySubCategory String
+  developerName       String
+  projectName         String
+  sector              String
+  // Free-value fields below (microMarket, accommodation, facing,
+  // furnishingStatus, propertyCategory, propertySubCategory, developerName,
+  // projectName, sector) are validated against the admin-managed FieldOption
+  // table for their fieldKey rather than fixed Prisma enums, per the
+  // requirement that SUPER_ADMIN/ADMIN can add or delete values for any field.
+  microMarket         String
+
+  customerType      CustomerType
+  customerName      String
+  mobileNo          String
+  alternateMobileNo String?
+  emailId           String?
+  alternateEmailId  String?
+
+  towerNameNo      String
+  flatNo           String
+  floor            String
+  accommodation    String
+  area             Float
+  facing           String
+  furnishingStatus String
+
+  askingPrice  Float?
+  expectedRent Float?
+  pricePerSqFt Float?
+
+  propertyAgeYears     Float
+  holdingDurationYears Float
+
+  targetSaleTimeframeDays Int
+  targetSaleDate          DateTime
+  status                  InventoryStatus @default(ACTIVE)
+  lastReminderSentAt      DateTime?
+
+  submittedById String
+  submittedBy   User   @relation("SubmittedBy", fields: [submittedById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  reminderLogs ReminderLog[]
+
+  @@index([submittedById])
+  @@index([status, targetSaleDate])
+}
+
+model ReminderLog {
+  id            String          @id @default(cuid())
+  inventoryId   String
+  inventory     ResaleInventory @relation(fields: [inventoryId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User            @relation(fields: [userId], references: [id])
+  sentAt        DateTime        @default(now())
+  daysRemaining Int
+}
