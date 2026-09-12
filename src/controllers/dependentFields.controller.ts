@@ -6,6 +6,7 @@ import {
   createDependentFieldDefinitionSchema,
   createDependentFieldOptionSchema,
 } from '../utils/validators.fields';
+import { recordAuditLog } from '../services/auditLogService';
 
 export const listDependentFieldDefinitions = asyncHandler(async (_req: Request, res: Response) => {
   const definitions = await prisma.dependentFieldDefinition.findMany({
@@ -36,16 +37,36 @@ export const createDependentFieldDefinition = asyncHandler(async (req: Request, 
     },
   });
 
+  await recordAuditLog({
+    actorId: req.user.sub,
+    action: 'DEPENDENT_FIELD_DEFINITION_CREATED',
+    targetType: 'DependentFieldDefinition',
+    targetId: definition.id,
+    metadata: { parentFieldKey: input.parentFieldKey, childFieldKey: input.childFieldKey },
+  });
+
   res.status(201).json(definition);
 });
 
 export const deleteDependentFieldDefinition = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) {
+    throw new UnauthorizedError();
+  }
   const { id } = req.params;
   const definition = await prisma.dependentFieldDefinition.findUnique({ where: { id } });
   if (!definition) {
     throw new NotFoundError('Dependent field definition not found');
   }
   await prisma.dependentFieldDefinition.delete({ where: { id } });
+
+  await recordAuditLog({
+    actorId: req.user.sub,
+    action: 'DEPENDENT_FIELD_DEFINITION_DELETED',
+    targetType: 'DependentFieldDefinition',
+    targetId: id,
+    metadata: { parentFieldKey: definition.parentFieldKey, childFieldKey: definition.childFieldKey },
+  });
+
   res.status(204).send();
 });
 

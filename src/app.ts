@@ -7,6 +7,7 @@ import inventoryRoutes from './routes/inventory.routes';
 import fieldOptionsRoutes from './routes/fieldOptions.routes';
 import dependentFieldsRoutes from './routes/dependentFields.routes';
 import fieldVisibilityRoutes from './routes/fieldVisibility.routes';
+import auditLogRoutes from './routes/auditLog.routes';
 import { errorHandler } from './middleware/errorHandler';
 
 export function createApp(): Express {
@@ -26,6 +27,7 @@ export function createApp(): Express {
   app.use('/field-options', fieldOptionsRoutes);
   app.use('/dependent-fields', dependentFieldsRoutes);
   app.use('/field-visibility-rules', fieldVisibilityRoutes);
+  app.use('/audit-logs', auditLogRoutes);
 
   app.use(errorHandler);
 

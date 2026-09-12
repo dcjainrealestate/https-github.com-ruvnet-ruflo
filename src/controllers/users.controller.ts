@@ -1,12 +1,13 @@
 import { Request, Response } from 'express';
 import { prisma } from '../config/prisma';
 import { asyncHandler } from '../utils/asyncHandler';
-import { BadRequestError, NotFoundError } from '../utils/errors';
+import { BadRequestError, NotFoundError, UnauthorizedError } from '../utils/errors';
 import {
   updateFieldVisibilityRightsSchema,
   updateUserRoleSchema,
   updateUserStatusSchema,
 } from '../utils/validators.users';
+import { recordAuditLog } from '../services/auditLogService';
 
 const USER_LIST_SELECT = {
   id: true,
@@ -28,6 +29,9 @@ export const listUsers = asyncHandler(async (_req: Request, res: Response) => {
 // Only SUPER_ADMIN may call this (enforced at the route level). Grants or
 // changes a user's role, including promoting to ADMIN or SUPER_ADMIN.
 export const updateUserRole = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) {
+    throw new UnauthorizedError();
+  }
   const { id } = req.params;
   const input = updateUserRoleSchema.parse(req.body);
 
@@ -46,12 +50,23 @@ export const updateUserRole = asyncHandler(async (req: Request, res: Response) =
     select: USER_LIST_SELECT,
   });
 
+  await recordAuditLog({
+    actorId: req.user.sub,
+    action: 'USER_ROLE_CHANGED',
+    targetType: 'User',
+    targetId: id,
+    metadata: { from: user.role, to: input.role },
+  });
+
   res.status(200).json(updated);
 });
 
 // SUPER_ADMIN delegates (or revokes) the right to manage field masking/hiding
 // rules. Only meaningful for ADMIN-role users.
 export const updateFieldVisibilityRights = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) {
+    throw new UnauthorizedError();
+  }
   const { id } = req.params;
   const input = updateFieldVisibilityRightsSchema.parse(req.body);
 
@@ -69,10 +84,21 @@ export const updateFieldVisibilityRights = asyncHandler(async (req: Request, res
     select: USER_LIST_SELECT,
   });
 
+  await recordAuditLog({
+    actorId: req.user.sub,
+    action: 'USER_FIELD_VISIBILITY_RIGHTS_CHANGED',
+    targetType: 'User',
+    targetId: id,
+    metadata: { canManageFieldVisibility: input.canManageFieldVisibility },
+  });
+
   res.status(200).json(updated);
 });
 
 export const updateUserStatus = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) {
+    throw new UnauthorizedError();
+  }
   const { id } = req.params;
   const input = updateUserStatusSchema.parse(req.body);
 
@@ -85,6 +111,14 @@ export const updateUserStatus = asyncHandler(async (req: Request, res: Response)
     where: { id },
     data: { isActive: input.isActive },
     select: USER_LIST_SELECT,
+  });
+
+  await recordAuditLog({
+    actorId: req.user.sub,
+    action: 'USER_STATUS_CHANGED',
+    targetType: 'User',
+    targetId: id,
+    metadata: { isActive: input.isActive },
   });
 
   res.status(200).json(updated);

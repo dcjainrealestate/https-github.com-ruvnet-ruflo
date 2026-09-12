@@ -66,29 +66,70 @@ async function getVisibilityRules(role: Role) {
   return prisma.fieldVisibilityRule.findMany({ where: { role } });
 }
 
+const MAX_PAGE_SIZE = 100;
+const DEFAULT_PAGE_SIZE = 20;
+const FILTERABLE_FIELDS = [
+  'status',
+  'customerType',
+  'propertyCategory',
+  'propertySubCategory',
+  'developerName',
+  'projectName',
+  'sector',
+  'microMarket',
+  'accommodation',
+  'facing',
+  'furnishingStatus',
+] as const;
+
 export const listInventory = asyncHandler(async (req: Request, res: Response) => {
   if (!req.user) {
     throw new UnauthorizedError();
   }
-  const { status } = req.query;
+
+  const page = Math.max(1, Number(req.query.page) || 1);
+  const pageSize = Math.min(MAX_PAGE_SIZE, Math.max(1, Number(req.query.pageSize) || DEFAULT_PAGE_SIZE));
 
   const where: Record<string, unknown> = {};
-  if (typeof status === 'string') {
-    where.status = status;
+  for (const field of FILTERABLE_FIELDS) {
+    const value = req.query[field];
+    if (typeof value === 'string' && value.length > 0) {
+      where[field] = value;
+    }
+  }
+  if (typeof req.query.search === 'string' && req.query.search.length > 0) {
+    const search = req.query.search;
+    where.OR = [
+      { customerName: { contains: search, mode: 'insensitive' } },
+      { projectName: { contains: search, mode: 'insensitive' } },
+      { flatNo: { contains: search, mode: 'insensitive' } },
+      { towerNameNo: { contains: search, mode: 'insensitive' } },
+    ];
   }
   // Non-admin roles only see their own submissions; admins/super admins see all.
   if (!isAdminOrAbove(req.user.role)) {
     where.submittedById = req.user.sub;
   }
 
-  const records = await prisma.resaleInventory.findMany({ where, orderBy: { createdAt: 'desc' } });
+  const [total, records] = await Promise.all([
+    prisma.resaleInventory.count({ where }),
+    prisma.resaleInventory.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+  ]);
   const rules = await getVisibilityRules(req.user.role);
 
   const sanitized = records.map((record) =>
     applyFieldVisibility(record, req.user!.role, rules, { isOwner: record.submittedById === req.user!.sub }),
   );
 
-  res.status(200).json(sanitized);
+  res.status(200).json({
+    data: sanitized,
+    pagination: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) },
+  });
 });
 
 export const getInventoryById = asyncHandler(async (req: Request, res: Response) => {

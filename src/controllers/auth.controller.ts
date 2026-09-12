@@ -4,11 +4,21 @@ import { prisma } from '../config/prisma';
 import { asyncHandler } from '../utils/asyncHandler';
 import { BadRequestError, ConflictError, ForbiddenError, UnauthorizedError } from '../utils/errors';
 import {
+  forgotPasswordSchema,
   loginSchema,
   registerSchema,
+  resetPasswordSchema,
   twoFactorLoginVerifySchema,
   twoFactorSetupVerifySchema,
 } from '../utils/validators';
+import {
+  computeResetTokenExpiry,
+  generateResetToken,
+  hashResetToken,
+  isResetTokenExpired,
+} from '../services/passwordResetService';
+import { sendEmail } from '../services/emailService';
+import { env } from '../config/env';
 import {
   buildOtpAuthUrl,
   computeTwoFactorSetupDeadline,
@@ -158,4 +168,53 @@ export const confirmTwoFactorSetup = asyncHandler(async (req: Request, res: Resp
 
   const accessToken = issueAccessToken(updated.id, updated.role, updated.twoFactorEnabled);
   res.status(200).json({ accessToken, twoFactorEnabled: true });
+});
+
+const GENERIC_FORGOT_PASSWORD_MESSAGE =
+  'If an account exists for this email, a password reset link has been sent.';
+
+// Always responds with the same generic message regardless of whether the
+// email is registered, to avoid leaking account existence.
+export const forgotPassword = asyncHandler(async (req: Request, res: Response) => {
+  const input = forgotPasswordSchema.parse(req.body);
+
+  const user = await prisma.user.findUnique({ where: { email: input.email } });
+  if (user && user.isActive) {
+    const token = generateResetToken();
+    await prisma.passwordResetToken.create({
+      data: {
+        userId: user.id,
+        tokenHash: hashResetToken(token),
+        expiresAt: computeResetTokenExpiry(),
+      },
+    });
+
+    const resetUrl = `${env.frontendUrl}/reset-password?token=${token}`;
+    await sendEmail({
+      to: user.email,
+      subject: 'Reset your password',
+      html: `<p>Click the link below to reset your password. This link expires in 1 hour.</p><p><a href="${resetUrl}">${resetUrl}</a></p>`,
+    });
+  }
+
+  res.status(200).json({ message: GENERIC_FORGOT_PASSWORD_MESSAGE });
+});
+
+export const resetPassword = asyncHandler(async (req: Request, res: Response) => {
+  const input = resetPasswordSchema.parse(req.body);
+  const tokenHash = hashResetToken(input.token);
+
+  const resetToken = await prisma.passwordResetToken.findUnique({ where: { tokenHash } });
+  if (!resetToken || resetToken.usedAt || isResetTokenExpired(resetToken.expiresAt)) {
+    throw new BadRequestError('This password reset link is invalid or has expired');
+  }
+
+  const passwordHash = await bcrypt.hash(input.newPassword, PASSWORD_SALT_ROUNDS);
+
+  await prisma.$transaction([
+    prisma.user.update({ where: { id: resetToken.userId }, data: { passwordHash } }),
+    prisma.passwordResetToken.update({ where: { id: resetToken.id }, data: { usedAt: new Date() } }),
+  ]);
+
+  res.status(200).json({ message: 'Password has been reset. You may now log in.' });
 });

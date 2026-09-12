@@ -19,3 +19,5 @@ SMTP_PASSWORD=
 SMTP_FROM="Ruflo Resale Inventory <no-reply@ruflo.example.com>"
 
 REMINDER_CRON_SCHEDULE=0 9 * * *
+
+FRONTEND_URL=http://localhost:5173

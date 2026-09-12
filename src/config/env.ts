@@ -34,4 +34,6 @@ export const env = {
   },
 
   reminderCronSchedule: process.env.REMINDER_CRON_SCHEDULE ?? '0 9 * * *',
+
+  frontendUrl: process.env.FRONTEND_URL ?? 'http://localhost:5173',
 };

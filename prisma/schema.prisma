@@ -60,6 +60,37 @@ model User {
   dependentFieldDefsCreated DependentFieldDefinition[] @relation("DependentFieldDefCreatedBy")
   visibilityRulesCreated    FieldVisibilityRule[]      @relation("VisibilityRuleCreatedBy")
   reminderLogs              ReminderLog[]
+  auditLogs                 AuditLog[]                 @relation("AuditLogActor")
+  passwordResetTokens       PasswordResetToken[]
+}
+
+// Records administrative actions (role changes, masking/hiding rule
+// changes, field option add/remove, dependent field changes) so there is a
+// trail of who changed what and when.
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String
+  actor      User     @relation("AuditLogActor", fields: [actorId], references: [id])
+  action     String
+  targetType String
+  targetId   String
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([targetType, targetId])
+  @@index([actorId])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id])
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
 }
 
 // Generic key/value options for any select-type field (Property Category,
