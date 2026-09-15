@@ -356,6 +356,10 @@ const DB = (function(){
   // every insert/update degrades gracefully instead of failing outright
   // (an unknown column makes PostgREST reject the entire write).
   let recurrenceSupported = true;
+  // Whether the `linked_task_id` column exists yet on `tasks` — used for
+  // resource requests (a task created from inside another task, asking a
+  // teammate for something). Same graceful-degradation approach as above.
+  let linkedTaskSupported = true;
   const deptRows = [];   // internal {dbId, name} — departments/projects are
   const projRows = [];   // plain TEXT columns on tasks/employees, not FKs
 
@@ -391,7 +395,8 @@ const DB = (function(){
       assignedTo: row.assigned_to!=null ? 'E'+row.assigned_to : null, assignedBy: row.assigned_by!=null ? 'E'+row.assigned_by : null,
       department:row.department, project:row.project, createdDate:row.created_date, startDate:row.start_date, dueDate:row.due_date,
       priority:row.priority, level:row.level, status:row.status, estimatedHours:row.estimated_hours, actualHours:row.actual_hours,
-      completionDate:row.completion_date, progress:row.progress, completionNotes:row.completion_notes||'', recurrence:row.recurrence||null, comments:[] };
+      completionDate:row.completion_date, progress:row.progress, completionNotes:row.completion_notes||'', recurrence:row.recurrence||null,
+      linkedTaskId: row.linked_task_id!=null ? 'T'+String(row.linked_task_id).padStart(3,'0') : null, comments:[] };
   }
   function mapCommentRow(row){
     return { id:'C'+row.id, dbId:row.id, taskDbId:row.task_id, text:row.text, authorId: row.author_id!=null ? 'E'+row.author_id : null,
@@ -451,6 +456,13 @@ const DB = (function(){
       recurrenceSupported = !error;
       if (error) console.warn('Recurring tasks unavailable — run add_recurrence_column.sql in Supabase to enable it.', error.message);
     } catch(e){ recurrenceSupported = false; }
+
+    // Same probe for resource-request linking.
+    try {
+      const { error } = await sb.from('tasks').select('linked_task_id').limit(1);
+      linkedTaskSupported = !error;
+      if (error) console.warn('Resource requests unavailable — run add_linked_task_column.sql in Supabase to enable it.', error.message);
+    } catch(e){ linkedTaskSupported = false; }
   }
 
   function setupRealtime(onChange){
@@ -562,6 +574,7 @@ const DB = (function(){
       completion_notes:t.completionNotes||''
     };
     if (recurrenceSupported) row.recurrence = t.recurrence||null;
+    if (linkedTaskSupported) row.linked_task_id = rawId(t.linkedTaskId);
     const { data, error } = await sb.from('tasks').insert(row).select().single();
     if (error) throw error;
     const mapped = mapTaskRow(data);
@@ -579,6 +592,7 @@ const DB = (function(){
       completion_date:t.completionDate, progress:t.progress, completion_notes:t.completionNotes||''
     };
     if (recurrenceSupported) row.recurrence = t.recurrence||null;
+    if (linkedTaskSupported) row.linked_task_id = rawId(t.linkedTaskId);
     sb.from('tasks').update(row).eq('id', t.dbId).then(({error}) => { if (error) showToast('Could not save that change — check your connection'); });
     return t;
   }
@@ -2091,6 +2105,7 @@ function renderModal(){
   if (m.type === 'employeeForm') return renderEmployeeFormModal(m.empId);
   if (m.type === 'employeeDetail') return renderEmployeeDetailModal(m.empId);
   if (m.type === 'sendNotification') return renderSendNotificationModal();
+  if (m.type === 'resourceRequest') return renderResourceRequestModal(m.taskId);
   return '';
 }
 
@@ -2122,6 +2137,57 @@ async function submitSendNotification(){
     closeModal();
   } catch(e){
     showToast('Could not send the notification — check your connection and try again');
+  }
+}
+
+/* ---- Resource Request (ask a teammate for something from inside a task) ---- */
+function openResourceRequestModal(taskId){ state.modal = { type:'resourceRequest', taskId }; render(); }
+function renderResourceRequestModal(taskId){
+  const t = DB.tasks.find(x => x.id===taskId);
+  if (!t) return '';
+  const recipients = visibleEmployees().filter(e => e.active && e.id !== currentUser().id);
+  return '<div class="modal-overlay" onclick="if(event.target===this) closeModal()"><div class="modal">' +
+    '<div class="modal-head"><h3>Request Something From a Teammate</h3><span class="close-x" onclick="closeModal()">'+icon('x',15)+'</span></div>' +
+    '<div class="modal-body">' +
+      '<div class="sub" style="margin-bottom:10px">Need a file, an approval, info, or anything else from someone to finish <strong>'+escHtml(t.name)+'</strong>? This creates a task for them so it doesn\'t get lost.</div>' +
+      '<div class="field-row single"><div class="field-group"><label>Request From</label><select id="rr-recipient" class="field">' +
+        (recipients.length ? recipients.map(e => '<option value="'+e.id+'">'+e.name+'</option>').join('') : '<option value="">No other teammates available</option>') +
+      '</select></div></div>' +
+      '<div class="field-row single"><div class="field-group"><label>What do you need?</label><input id="rr-title" class="field" placeholder="e.g. Signed NOC for Skyline Towers" /></div></div>' +
+      '<div class="field-row single"><div class="field-group"><label>Details</label><textarea id="rr-desc" class="field" rows="3" placeholder="Any context that will help them (optional)"></textarea></div></div>' +
+      '<div class="field-row">' +
+        '<div class="field-group"><label>Needed By</label><input id="rr-due" type="date" class="field" value="'+addDaysISO(todayISO(),3)+'" /></div>' +
+        '<div class="field-group"><label>Priority</label><select id="rr-priority" class="field">'+PRIORITIES.map(p=>'<option '+(p==='Medium'?'selected':'')+'>'+p+'</option>').join('')+'</select></div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" '+(recipients.length?'':'disabled')+' onclick="submitResourceRequest(\''+t.id+'\')">'+icon('users',13)+' Send Request</button></div>' +
+  '</div></div>';
+}
+async function submitResourceRequest(taskId){
+  const t = DB.tasks.find(x => x.id===taskId);
+  if (!t) return;
+  const recipientId = document.getElementById('rr-recipient').value;
+  if (!recipientId){ showToast('Pick who you need this from'); return; }
+  const title = document.getElementById('rr-title').value.trim();
+  if (!title){ showToast('Say what you need'); return; }
+  const details = document.getElementById('rr-desc').value.trim();
+  const due = document.getElementById('rr-due').value || addDaysISO(todayISO(),3);
+  const priority = document.getElementById('rr-priority').value;
+  const recipient = DB.employees.find(e => e.id===recipientId);
+  const note = 'Requested by ' + currentUser().name + ' for task ' + t.id + ' — ' + t.name + '.' + (details ? ('\n\n' + details) : '');
+  try {
+    const newTask = await DB.addTask({
+      name: title, description: note, assignedTo: recipientId, assignedBy: currentUser().id,
+      department: recipient.department, project: t.project, createdDate: todayISO(), startDate: todayISO(),
+      dueDate: due, priority, level: 1, status: 'Not Started', estimatedHours: null, actualHours: null,
+      progress: 0, completionDate: null, completionNotes: '', linkedTaskId: t.id
+    });
+    DB.addComment(t.id, 'Requested "'+title+'" from '+recipient.name+' (task '+newTask.id+').', currentUser().id, 'request');
+    showToast('Request sent to ' + recipient.name);
+    state.modal = { type:'taskDetail', taskId: t.id, showCompletionPrompt:false, showRejectPrompt:false };
+    render();
+  } catch(e){
+    showToast('Could not send the request — check your connection and try again');
   }
 }
 
@@ -2317,7 +2383,7 @@ function addTaskComment(id){
 function detailField(label, value){ return '<div class="flex-between" style="font-size:12.5px;padding:3px 0"><span class="muted">'+label+'</span><span style="font-weight:600;text-align:right">'+value+'</span></div>'; }
 function commentBlock(c){
   const author = DB.employees.find(e => e.id===c.authorId);
-  const typeLabel = c.type==='completion' ? ' · Completion note' : c.type==='approval' ? ' · Approval' : '';
+  const typeLabel = c.type==='completion' ? ' · Completion note' : c.type==='approval' ? ' · Approval' : c.type==='request' ? ' · Resource Request' : '';
   return '<div class="comment"><div class="meta">'+(author?author.name:'Unknown')+' · '+fmtDateTime(c.at)+typeLabel+'</div>'+escHtml(c.text)+'</div>';
 }
 function completionPromptBlock(t){
@@ -2347,15 +2413,18 @@ function renderTaskDetailModal(taskId){
   const assignedBy = DB.employees.find(e => e.id===t.assignedBy);
   const editable = canUpdateProgress(t);
   const statusOptions = isAdmin() ? STATUSES : (MEMBER_STATUSES.includes(t.status) ? MEMBER_STATUSES : MEMBER_STATUSES.concat([t.status]));
+  const originTask = t.linkedTaskId ? DB.tasks.find(x => x.id===t.linkedTaskId) : null;
+  const requestedTasks = DB.tasks.filter(x => x.linkedTaskId===t.id);
   return '<div class="modal-overlay" onclick="if(event.target===this) closeModal()"><div class="modal wide">' +
     '<div class="modal-head"><div><h3>'+t.name+'</h3><div class="sub mono">'+t.id+'</div></div>' +
-      '<div class="flex gap-8">' + (isAdmin()?('<button class="btn btn-sm btn-ghost" onclick="openEditTask(\''+t.id+'\')">'+icon('edit',13)+' Edit</button>'):'') + '<span class="close-x" onclick="closeModal()">'+icon('x',15)+'</span></div>' +
+      '<div class="flex gap-8">' + (isAdmin()?('<button class="btn btn-sm btn-ghost" onclick="openEditTask(\''+t.id+'\')">'+icon('edit',13)+' Edit</button>'):'') + '<button class="btn btn-sm btn-ghost" onclick="openResourceRequestModal(\''+t.id+'\')">'+icon('users',13)+' Request Resource</button>' + '<span class="close-x" onclick="closeModal()">'+icon('x',15)+'</span></div>' +
     '</div>' +
     '<div class="modal-body">' +
       '<div class="grid grid-2" style="gap:24px;align-items:start">' +
         '<div class="stack">' +
           '<div class="flex gap-8" style="flex-wrap:wrap">'+priorityPill(t.priority)+levelBars(t.level)+statusPill(t)+'</div>' +
           '<div class="sub">'+escHtml(t.description||'No description provided.')+'</div>' +
+          (originTask ? '<div class="card" style="background:var(--accent-soft);padding:8px 10px;font-size:12.5px"><span class="muted">Requested for</span> <span style="font-weight:700;cursor:pointer;color:var(--accent-strong)" onclick="openTaskDetail(\''+originTask.id+'\')">'+escHtml(originTask.name)+' ('+originTask.id+')</span></div>' : (t.linkedTaskId ? '<div class="card" style="background:var(--accent-soft);padding:8px 10px;font-size:12.5px"><span class="muted">Requested for task '+t.linkedTaskId+'</span></div>' : '')) +
           '<div class="divider"></div>' +
           detailField('Assigned To', assignee?assignee.name:'<span class="muted">Unassigned</span>') +
           detailField('Assigned By', assignedBy?assignedBy.name:'—') +
@@ -2365,6 +2434,10 @@ function renderTaskDetailModal(taskId){
           (t.recurrence ? detailField('Repeats', '🔁 ' + (RECURRENCE_LABELS[t.recurrence]||t.recurrence)) : '') +
           detailField('Estimated Time', t.estimatedHours!=null?t.estimatedHours+' hrs':'—') + detailField('Actual Time', t.actualHours!=null?t.actualHours+' hrs':'—') +
           (t.completionDate ? detailField(t.status==='Pending Approval'?'Submitted':'Completed', fmtDateTime(t.completionDate)) : '') +
+          (requestedTasks.length ? ('<div class="divider"></div><div class="card-title-sm">Resource Requests</div>' + requestedTasks.map(rt => {
+            const rtAssignee = DB.employees.find(e => e.id===rt.assignedTo);
+            return '<div class="flex-between" style="font-size:12.5px;padding:4px 0;cursor:pointer" onclick="openTaskDetail(\''+rt.id+'\')"><span style="font-weight:600">'+escHtml(rt.name)+' <span class="muted">→ '+(rtAssignee?rtAssignee.name:'—')+'</span></span>'+statusPill(rt)+'</div>';
+          }).join('')) : '') +
         '</div>' +
         '<div class="stack">' +
           '<div class="card-title-sm">Progress</div>' +
