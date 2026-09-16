@@ -1,0 +1,226 @@
+import { Request, Response } from 'express';
+import { Role } from '@prisma/client';
+import { prisma } from '../config/prisma';
+import { asyncHandler } from '../utils/asyncHandler';
+import { ForbiddenError, NotFoundError, UnauthorizedError } from '../utils/errors';
+import { createInventorySchema, updateInventorySchema, updateInventoryStatusSchema } from '../utils/validators.inventory';
+import { assertDependentValueAllowed, assertValidOptionValue } from '../services/fieldOptionValidation';
+import { computePricePerSqFt, computeTargetSaleDate } from '../services/inventoryCalculations';
+import { applyFieldVisibility } from '../services/maskingService';
+import { isAdminOrAbove } from '../middleware/rbac';
+
+async function validateOptionBackedFields(data: {
+  propertyCategory: string;
+  propertySubCategory: string;
+  developerName: string;
+  projectName: string;
+  sector: string;
+  microMarket: string;
+  accommodation: string;
+  facing: string;
+  furnishingStatus: string;
+}): Promise<void> {
+  await Promise.all([
+    assertValidOptionValue('propertyCategory', data.propertyCategory),
+    assertValidOptionValue('propertySubCategory', data.propertySubCategory),
+    assertValidOptionValue('developerName', data.developerName),
+    assertValidOptionValue('projectName', data.projectName),
+    assertValidOptionValue('sector', data.sector),
+    assertValidOptionValue('microMarket', data.microMarket),
+    assertValidOptionValue('accommodation', data.accommodation),
+    assertValidOptionValue('facing', data.facing),
+    assertValidOptionValue('furnishingStatus', data.furnishingStatus),
+  ]);
+
+  // Cascading dependent-field checks (no-op if the pairing isn't configured).
+  await Promise.all([
+    assertDependentValueAllowed('developerName', data.developerName, 'projectName', data.projectName),
+    assertDependentValueAllowed('microMarket', data.microMarket, 'sector', data.sector),
+    assertDependentValueAllowed('propertyCategory', data.propertyCategory, 'propertySubCategory', data.propertySubCategory),
+  ]);
+}
+
+export const createInventory = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) {
+    throw new UnauthorizedError();
+  }
+  const input = createInventorySchema.parse(req.body);
+  await validateOptionBackedFields(input);
+
+  const pricePerSqFt = computePricePerSqFt(input.askingPrice, input.area);
+  const targetSaleDate = computeTargetSaleDate(input.targetSaleTimeframeDays);
+
+  const inventory = await prisma.resaleInventory.create({
+    data: {
+      ...input,
+      pricePerSqFt,
+      targetSaleDate,
+      submittedById: req.user.sub,
+    },
+  });
+
+  res.status(201).json(inventory);
+});
+
+async function getVisibilityRules(role: Role) {
+  return prisma.fieldVisibilityRule.findMany({ where: { role } });
+}
+
+const MAX_PAGE_SIZE = 100;
+const DEFAULT_PAGE_SIZE = 20;
+const FILTERABLE_FIELDS = [
+  'status',
+  'customerType',
+  'propertyCategory',
+  'propertySubCategory',
+  'developerName',
+  'projectName',
+  'sector',
+  'microMarket',
+  'accommodation',
+  'facing',
+  'furnishingStatus',
+] as const;
+
+export const listInventory = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) {
+    throw new UnauthorizedError();
+  }
+
+  const page = Math.max(1, Number(req.query.page) || 1);
+  const pageSize = Math.min(MAX_PAGE_SIZE, Math.max(1, Number(req.query.pageSize) || DEFAULT_PAGE_SIZE));
+
+  const where: Record<string, unknown> = {};
+  for (const field of FILTERABLE_FIELDS) {
+    const value = req.query[field];
+    if (typeof value === 'string' && value.length > 0) {
+      where[field] = value;
+    }
+  }
+  if (typeof req.query.search === 'string' && req.query.search.length > 0) {
+    // MySQL's default utf8mb4_unicode_ci collation is already
+    // case-insensitive for `contains`, unlike Postgres, so no `mode` option
+    // is needed (and MySQL's Prisma connector doesn't support one).
+    const search = req.query.search;
+    where.OR = [
+      { customerName: { contains: search } },
+      { projectName: { contains: search } },
+      { flatNo: { contains: search } },
+      { towerNameNo: { contains: search } },
+    ];
+  }
+  // Non-admin roles only see their own submissions; admins/super admins see all.
+  if (!isAdminOrAbove(req.user.role)) {
+    where.submittedById = req.user.sub;
+  }
+
+  const [total, records] = await Promise.all([
+    prisma.resaleInventory.count({ where }),
+    prisma.resaleInventory.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+  ]);
+  const rules = await getVisibilityRules(req.user.role);
+
+  const sanitized = records.map((record) =>
+    applyFieldVisibility(record, req.user!.role, rules, { isOwner: record.submittedById === req.user!.sub }),
+  );
+
+  res.status(200).json({
+    data: sanitized,
+    pagination: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) },
+  });
+});
+
+export const getInventoryById = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) {
+    throw new UnauthorizedError();
+  }
+  const { id } = req.params;
+  const record = await prisma.resaleInventory.findUnique({ where: { id } });
+  if (!record) {
+    throw new NotFoundError('Inventory record not found');
+  }
+  if (!isAdminOrAbove(req.user.role) && record.submittedById !== req.user.sub) {
+    throw new ForbiddenError('You may only view your own inventory submissions');
+  }
+
+  const rules = await getVisibilityRules(req.user.role);
+  const sanitized = applyFieldVisibility(record, req.user.role, rules, {
+    isOwner: record.submittedById === req.user.sub,
+  });
+
+  res.status(200).json(sanitized);
+});
+
+export const updateInventory = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) {
+    throw new UnauthorizedError();
+  }
+  const { id } = req.params;
+  const record = await prisma.resaleInventory.findUnique({ where: { id } });
+  if (!record) {
+    throw new NotFoundError('Inventory record not found');
+  }
+  if (!isAdminOrAbove(req.user.role) && record.submittedById !== req.user.sub) {
+    throw new ForbiddenError('You may only edit your own inventory submissions');
+  }
+
+  const input = updateInventorySchema.parse(req.body);
+  const merged = { ...record, ...input };
+  await validateOptionBackedFields(merged);
+
+  const pricePerSqFt = computePricePerSqFt(merged.askingPrice ?? undefined, merged.area);
+  const targetSaleDate = input.targetSaleTimeframeDays
+    ? computeTargetSaleDate(input.targetSaleTimeframeDays)
+    : undefined;
+
+  const updated = await prisma.resaleInventory.update({
+    where: { id },
+    data: {
+      ...input,
+      pricePerSqFt,
+      ...(targetSaleDate ? { targetSaleDate } : {}),
+    },
+  });
+
+  res.status(200).json(updated);
+});
+
+export const updateInventoryStatus = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) {
+    throw new UnauthorizedError();
+  }
+  const { id } = req.params;
+  const record = await prisma.resaleInventory.findUnique({ where: { id } });
+  if (!record) {
+    throw new NotFoundError('Inventory record not found');
+  }
+  if (!isAdminOrAbove(req.user.role) && record.submittedById !== req.user.sub) {
+    throw new ForbiddenError('You may only update your own inventory submissions');
+  }
+
+  const input = updateInventoryStatusSchema.parse(req.body);
+  const updated = await prisma.resaleInventory.update({ where: { id }, data: { status: input.status } });
+  res.status(200).json(updated);
+});
+
+export const deleteInventory = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) {
+    throw new UnauthorizedError();
+  }
+  const { id } = req.params;
+  const record = await prisma.resaleInventory.findUnique({ where: { id } });
+  if (!record) {
+    throw new NotFoundError('Inventory record not found');
+  }
+  if (!isAdminOrAbove(req.user.role) && record.submittedById !== req.user.sub) {
+    throw new ForbiddenError('You may only delete your own inventory submissions');
+  }
+
+  await prisma.resaleInventory.delete({ where: { id } });
+  res.status(204).send();
+});
