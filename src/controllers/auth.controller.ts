@@ -5,12 +5,15 @@ import { asyncHandler } from '../utils/asyncHandler';
 import { BadRequestError, ConflictError, ForbiddenError, UnauthorizedError } from '../utils/errors';
 import {
   forgotPasswordSchema,
+  googleLoginSchema,
   loginSchema,
   registerSchema,
   resetPasswordSchema,
   twoFactorLoginVerifySchema,
   twoFactorSetupVerifySchema,
 } from '../utils/validators';
+import { verifyGoogleIdToken } from '../services/googleAuthService';
+import { Role } from '@prisma/client';
 import {
   computeResetTokenExpiry,
   generateResetToken,
@@ -59,6 +62,38 @@ export const register = asyncHandler(async (req: Request, res: Response) => {
   });
 });
 
+interface LoginableUser {
+  id: string;
+  role: Role;
+  twoFactorEnabled: boolean;
+  twoFactorSetupDeadline: Date;
+}
+
+// Shared tail of every login path (password or Google): 2FA gating, then
+// issuing an access token. Kept in one place so Google sign-in can never
+// accidentally skip the same mandatory-2FA rules password login enforces.
+function completeLogin(user: LoginableUser) {
+  if (user.twoFactorEnabled) {
+    const tempToken = issueTempTwoFactorToken(user.id, '2fa-login');
+    return { requiresTwoFactor: true, tempToken };
+  }
+
+  if (isTwoFactorSetupOverdue(user.twoFactorSetupDeadline)) {
+    const tempToken = issueTempTwoFactorToken(user.id, '2fa-setup');
+    throw Object.assign(
+      new ForbiddenError('Two-factor authentication setup grace period has expired. Set up 2FA to continue.'),
+      { tempToken },
+    );
+  }
+
+  const accessToken = issueAccessToken(user.id, user.role, user.twoFactorEnabled);
+  return {
+    requiresTwoFactor: false,
+    accessToken,
+    twoFactorSetupDeadline: user.twoFactorSetupDeadline,
+  };
+}
+
 export const login = asyncHandler(async (req: Request, res: Response) => {
   const input = loginSchema.parse(req.body);
 
@@ -72,28 +107,23 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
     throw new UnauthorizedError('Invalid email or password');
   }
 
-  if (user.twoFactorEnabled) {
-    const tempToken = issueTempTwoFactorToken(user.id, '2fa-login');
-    return res.status(200).json({
-      requiresTwoFactor: true,
-      tempToken,
-    });
+  res.status(200).json(completeLogin(user));
+});
+
+// Signs in with a Google Identity Services ID token. Never creates an
+// account - users are provisioned by an admin, so a Google account that
+// doesn't match an existing, active user's email is rejected rather than
+// silently registered.
+export const loginWithGoogle = asyncHandler(async (req: Request, res: Response) => {
+  const input = googleLoginSchema.parse(req.body);
+  const email = await verifyGoogleIdToken(input.idToken);
+
+  const user = await prisma.user.findUnique({ where: { email } });
+  if (!user || !user.isActive) {
+    throw new UnauthorizedError('No account exists for this Google account. Contact your administrator.');
   }
 
-  if (isTwoFactorSetupOverdue(user.twoFactorSetupDeadline)) {
-    const tempToken = issueTempTwoFactorToken(user.id, '2fa-setup');
-    throw Object.assign(
-      new ForbiddenError('Two-factor authentication setup grace period has expired. Set up 2FA to continue.'),
-      { tempToken },
-    );
-  }
-
-  const accessToken = issueAccessToken(user.id, user.role, user.twoFactorEnabled);
-  return res.status(200).json({
-    requiresTwoFactor: false,
-    accessToken,
-    twoFactorSetupDeadline: user.twoFactorSetupDeadline,
-  });
+  res.status(200).json(completeLogin(user));
 });
 
 export const verifyTwoFactorLogin = asyncHandler(async (req: Request, res: Response) => {

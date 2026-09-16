@@ -36,4 +36,8 @@ export const env = {
   reminderCronSchedule: process.env.REMINDER_CRON_SCHEDULE ?? '0 9 * * *',
 
   frontendUrl: process.env.FRONTEND_URL ?? 'http://localhost:5173',
+
+  // Optional - "Sign in with Google". Leaving this unset keeps /auth/google
+  // disabled; setting it activates ID-token verification against that audience.
+  googleClientId: process.env.GOOGLE_CLIENT_ID ?? '',
 };

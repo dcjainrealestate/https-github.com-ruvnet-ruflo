@@ -1,10 +1,12 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { login, verifyTwoFactorLogin } from '../api/auth';
+import { login, loginWithGoogle, verifyTwoFactorLogin, type LoginResult } from '../api/auth';
 import { ApiError } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 
 type Step = 'credentials' | '2fa-verify';
+
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
 export function LoginPage() {
   const { signIn } = useAuth();
@@ -17,6 +19,63 @@ export function LoginPage() {
   const [tempToken, setTempToken] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const googleButtonRef = useRef<HTMLDivElement>(null);
+
+  async function handleLoginResult(result: LoginResult) {
+    if (result.requiresTwoFactor && result.tempToken) {
+      setTempToken(result.tempToken);
+      setStep('2fa-verify');
+    } else if (result.accessToken) {
+      await signIn(result.accessToken);
+      navigate('/inventory');
+    }
+  }
+
+  useEffect(() => {
+    if (!GOOGLE_CLIENT_ID || !googleButtonRef.current) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function handleGoogleCredential(response: { credential: string }) {
+      setError(null);
+      try {
+        const result = await loginWithGoogle(response.credential);
+        await handleLoginResult(result);
+      } catch (err) {
+        if (err instanceof ApiError && err.tempToken) {
+          navigate('/2fa-setup', { state: { setupToken: err.tempToken, forced: true } });
+          return;
+        }
+        setError(err instanceof ApiError ? err.message : 'Google sign-in failed. Please try again.');
+      }
+    }
+
+    function render() {
+      if (cancelled || !window.google || !googleButtonRef.current) {
+        return;
+      }
+      window.google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID!, callback: handleGoogleCredential });
+      window.google.accounts.id.renderButton(googleButtonRef.current, { theme: 'outline', size: 'large', width: 280 });
+    }
+
+    if (window.google) {
+      render();
+    } else {
+      const script = document.createElement('script');
+      script.src = 'https://accounts.google.com/gsi/client';
+      script.async = true;
+      script.defer = true;
+      script.onload = render;
+      document.head.appendChild(script);
+    }
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function handleCredentialsSubmit(event: FormEvent) {
     event.preventDefault();
@@ -24,13 +83,7 @@ export function LoginPage() {
     setSubmitting(true);
     try {
       const result = await login(email, password);
-      if (result.requiresTwoFactor && result.tempToken) {
-        setTempToken(result.tempToken);
-        setStep('2fa-verify');
-      } else if (result.accessToken) {
-        await signIn(result.accessToken);
-        navigate('/inventory');
-      }
+      await handleLoginResult(result);
     } catch (err) {
       if (err instanceof ApiError && err.tempToken) {
         navigate('/2fa-setup', { state: { setupToken: err.tempToken, forced: true } });
@@ -81,6 +134,13 @@ export function LoginPage() {
               <Link to="/register">Create an account</Link>
             </div>
           </form>
+        )}
+
+        {step === 'credentials' && GOOGLE_CLIENT_ID && (
+          <div className="auth-divider">
+            <span>or</span>
+            <div ref={googleButtonRef} />
+          </div>
         )}
 
         {step === '2fa-verify' && (

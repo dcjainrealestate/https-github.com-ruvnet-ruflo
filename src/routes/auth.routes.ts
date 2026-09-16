@@ -4,6 +4,7 @@ import {
   forgotPassword,
   getCurrentUser,
   login,
+  loginWithGoogle,
   register,
   resetPassword,
   startTwoFactorSetup,
@@ -16,6 +17,7 @@ const router = Router();
 
 router.post('/register', register);
 router.post('/login', login);
+router.post('/google', loginWithGoogle);
 router.post('/2fa/verify-login', verifyTwoFactorLogin);
 router.post('/forgot-password', forgotPassword);
 router.post('/reset-password', resetPassword);

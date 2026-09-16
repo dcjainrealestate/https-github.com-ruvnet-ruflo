@@ -21,3 +21,10 @@ SMTP_FROM="Ruflo Resale Inventory <no-reply@ruflo.example.com>"
 REMINDER_CRON_SCHEDULE=0 9 * * *
 
 FRONTEND_URL=http://localhost:5173
+
+# Optional - "Sign in with Google" (Login page button + POST /auth/google)
+# only activates once this is set. Create an OAuth 2.0 "Web application"
+# Client ID in Google Cloud Console (APIs & Services > Credentials), add
+# your frontend origin as an Authorized JavaScript origin, and put its
+# Client ID here (no secret needed - only the ID token is verified).
+GOOGLE_CLIENT_ID=

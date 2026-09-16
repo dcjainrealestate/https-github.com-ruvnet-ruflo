@@ -1,16 +1,29 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { getStoredTheme, setTheme, type ThemeChoice } from '../utils/theme';
 
 const ADMIN_ROLES = ['SUPER_ADMIN', 'ADMIN'];
+
+const THEME_OPTIONS: { value: ThemeChoice; label: string; title: string }[] = [
+  { value: 'light', label: '☀️', title: 'Light mode' },
+  { value: 'dark', label: '🌙', title: 'Dark mode' },
+  { value: 'system', label: '🖥️', title: 'Match system' },
+];
 
 export function Layout({ children }: { children: ReactNode }) {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
+  const [themeChoice, setThemeChoice] = useState<ThemeChoice>(getStoredTheme());
 
   function handleSignOut() {
     signOut();
     navigate('/login');
+  }
+
+  function handleThemeChange(choice: ThemeChoice) {
+    setTheme(choice);
+    setThemeChoice(choice);
   }
 
   return (
@@ -34,6 +47,20 @@ export function Layout({ children }: { children: ReactNode }) {
               )}
             </nav>
           )}
+          <div className="theme-toggle">
+            {THEME_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                title={option.title}
+                aria-label={option.title}
+                className={themeChoice === option.value ? 'active' : ''}
+                onClick={() => handleThemeChange(option.value)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
           {user && (
             <div className="user-menu">
               <span className="user-name">

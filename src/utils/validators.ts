@@ -11,6 +11,10 @@ export const loginSchema = z.object({
   password: z.string().min(1),
 });
 
+export const googleLoginSchema = z.object({
+  idToken: z.string().min(1),
+});
+
 export const twoFactorSetupVerifySchema = z.object({
   token: z.string().min(6).max(10),
 });

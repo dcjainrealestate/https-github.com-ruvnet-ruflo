@@ -34,6 +34,10 @@ export function verifyTwoFactorLogin(tempToken: string, token: string): Promise<
   return apiRequest('/auth/2fa/verify-login', { method: 'POST', body: { tempToken, token }, auth: false });
 }
 
+export function loginWithGoogle(idToken: string): Promise<LoginResult> {
+  return apiRequest('/auth/google', { method: 'POST', body: { idToken }, auth: false });
+}
+
 export interface TwoFactorSetupResult {
   secret: string;
   otpAuthUrl: string;
