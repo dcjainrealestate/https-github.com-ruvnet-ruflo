@@ -1211,6 +1211,7 @@ const state = {
   report: { month: today0.getMonth(), year: today0.getFullYear(), compareMode:false, cMonth:null, cYear:null, dept:'All', project:'All', selectedEmp:null },
   settingsDraft: { newDept:'', newProject:'' },
   teamTasksTab: 'overview',
+  myTasksShowCompleted: false,
   toast: null
 };
 applyTheme(state.theme);
@@ -2105,6 +2106,27 @@ const PRIORITY_RANK = {Critical:0, High:1, Medium:2, Low:3};
 const STATUS_RANK = {'Not Started':0,'In Progress':1,'On Hold':2,'Completed':3,'Cancelled':4};
 
 function setTeamTasksTab(tab){ state.teamTasksTab = tab; render(); }
+function toggleMyCompletedWork(){ state.myTasksShowCompleted = !state.myTasksShowCompleted; render(); }
+function myCompletedWorkSection(completedList){
+  const open = state.myTasksShowCompleted;
+  return '<div class="card" style="margin-top:16px">' +
+    '<div class="card-head" style="cursor:pointer" onclick="toggleMyCompletedWork()">' +
+      '<span class="card-title">'+(open?'▾':'▸')+' Completed Work</span>' +
+      '<span class="sub">'+completedList.length+' task'+(completedList.length===1?'':'s')+'</span>' +
+    '</div>' +
+    (open ? '<div class="card-pad" style="padding-top:10px">' + (
+      completedList.length ? '<div class="table-wrap"><table><thead><tr><th>Task</th><th>Project</th><th>Priority</th><th>Completed</th><th>Action</th></tr></thead><tbody>' +
+        completedList.map(t => '<tr class="row">' +
+          '<td class="task-name-cell" onclick="openTaskDetail(\''+t.id+'\')">'+escHtml(t.name)+'<div class="sub mono">'+t.id+'</div></td>' +
+          '<td>'+escHtml(t.project)+'</td>' +
+          '<td>'+priorityPill(t.priority)+'</td>' +
+          '<td class="sub">'+(t.completionDate?fmtDateTime(t.completionDate):'—')+'</td>' +
+          '<td><button class="btn btn-sm btn-ghost" onclick="openTaskDetail(\''+t.id+'\')">Open</button></td>' +
+        '</tr>').join('') + '</tbody></table></div>'
+      : '<div class="empty-state">No completed tasks yet.</div>'
+    ) + '</div>' : '') +
+  '</div>';
+}
 function setQuickFilter(v){ state.taskFilters.quick = v; render(); }
 function setTaskFilter(key, v){ state.taskFilters[key] = v; render(); }
 function setSort(field){
@@ -2117,6 +2139,9 @@ function resetTaskFilters(){ state.taskFilters = { quick:'All', status:'All', de
 function filterTasks(base, scope){
   const f = state.taskFilters, tISO = todayISO();
   let list = base.slice();
+  // My Tasks is meant to show active work only — completed tasks live in
+  // their own "Completed Work" bucket further down the page instead.
+  if (scope === 'my') list = list.filter(t => t.status !== 'Completed');
   if (f.quick === 'Today') list = list.filter(t => t.dueDate===tISO && t.status!=='Cancelled');
   else if (f.quick === 'Tomorrow') list = list.filter(t => t.dueDate===addDaysISO(tISO,1) && t.status!=='Cancelled');
   else if (f.quick === 'Due Soon') list = list.filter(t => t.dueDate>=addDaysISO(tISO,2) && t.dueDate<=addDaysISO(tISO,3) && t.status!=='Cancelled');
@@ -2165,10 +2190,10 @@ const TEAM_TASKS_TABS = [
 ];
 function filterBarAndTable(base, filtered, scope, f){
   return '<div class="filter-bar">' +
-    QUICK_FILTERS.map(qf => '<span class="chip-filter '+(f.quick===qf?'active':'')+'" onclick="setQuickFilter(\''+qf+'\')">'+qf+'</span>').join('') +
+    QUICK_FILTERS.filter(qf => !(scope==='my' && qf==='Completed')).map(qf => '<span class="chip-filter '+(f.quick===qf?'active':'')+'" onclick="setQuickFilter(\''+qf+'\')">'+qf+'</span>').join('') +
   '</div>' +
   '<div class="filter-bar">' +
-    selectFilter('status', ['All'].concat(STATUSES), f.status, 'Status') +
+    selectFilter('status', ['All'].concat(scope==='my' ? STATUSES.filter(s=>s!=='Completed') : STATUSES), f.status, 'Status') +
     selectFilter('dept', ['All'].concat(DB.departments), f.dept, 'Department') +
     selectFilter('project', ['All'].concat(DB.projects), f.project, 'Project', projectLabelMap()) +
     (scope==='all' ? selectFilter('employee', ['All','Unassigned'].concat(visibleEmployees().map(e=>e.id)), f.employee, 'Employee', empLabelMap()) : '') +
@@ -2271,7 +2296,8 @@ function viewTaskList(opts){
 
   let body = '';
   if (scope === 'my'){
-    body = filterBarAndTable(base, filtered, scope, f);
+    const completedList = base.filter(t => t.status==='Completed').sort((a,b) => (b.completionDate||'') < (a.completionDate||'') ? -1 : 1);
+    body = filterBarAndTable(base, filtered, scope, f) + myCompletedWorkSection(completedList);
   } else if (tab === 'workload'){
     body = '<div class="grid grid-2" style="margin-bottom:16px">' +
       '<div class="card"><div class="card-head"><span class="card-title">Team Workload</span><span class="sub">active vs completed (all time)</span></div><div class="card-pad">' + teamWorkloadChart(members) + '</div></div>' +
@@ -2312,7 +2338,7 @@ function viewTaskList(opts){
   }
 
   return '' +
-  '<div class="page-head"><div><div class="page-title">'+(scope==='my'?'My Tasks':'Team Tasks')+'</div><div class="page-sub">'+(scope==='my'?(filtered.length+' of '+base.length+' tasks'+(state.search?' · matching "'+escHtml(state.search)+'"':'')):'Track, manage and collaborate on your team\'s work.')+'</div></div>' +
+  '<div class="page-head"><div><div class="page-title">'+(scope==='my'?'My Tasks':'Team Tasks')+'</div><div class="page-sub">'+(scope==='my'?(filtered.length+' of '+base.filter(t=>t.status!=='Completed').length+' active tasks'+(state.search?' · matching "'+escHtml(state.search)+'"':'')):'Track, manage and collaborate on your team\'s work.')+'</div></div>' +
     '<div class="page-actions">' + '<button class="btn btn-primary" onclick="openCreateTask()">'+icon('plus',14)+' Create Task</button>' +
       '<button class="btn btn-sm btn-ghost" onclick="exportTaskCsv()">'+icon('download',13)+' Export CSV</button>' +
     '</div>' +
