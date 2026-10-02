@@ -202,6 +202,22 @@
   .workload-bars{flex:1; display:flex; gap:3px; height:9px;}
   .workload-bars span{border-radius:4px; background:var(--surface-2); border:1px solid var(--border);}
 
+  /* ---------- mini calendar / quick actions / activity feed ---------- */
+  .mini-cal-head-row{display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;}
+  .mini-cal-grid{display:grid; grid-template-columns:repeat(7,1fr); gap:2px;}
+  .mini-cal-dow{font-size:9.5px; color:var(--ink-faint); font-weight:700; text-align:center; padding-bottom:4px;}
+  .mini-cal-cell{aspect-ratio:1; display:flex; align-items:center; justify-content:center; font-size:11px; border-radius:7px; cursor:pointer; position:relative; font-weight:600; transition:background .12s var(--ease);}
+  .mini-cal-cell:hover{background:var(--surface-2);}
+  .mini-cal-cell.empty{cursor:default;}
+  .mini-cal-cell.empty:hover{background:none;}
+  .mini-cal-cell.today{background:var(--accent); color:var(--accent-ink); font-weight:800;}
+  .mini-cal-dot{position:absolute; bottom:3px; width:4px; height:4px; border-radius:50%;}
+  .quick-actions-grid{display:grid; grid-template-columns:1fr 1fr; gap:8px;}
+  .quick-action-btn{display:flex; flex-direction:column; align-items:center; gap:6px; padding:14px 8px; border-radius:var(--radius-sm); border:1px solid var(--border); background:var(--surface-solid); cursor:pointer; font-size:11.5px; font-weight:700; color:var(--ink-soft); transition:background .12s var(--ease), color .12s var(--ease);}
+  .quick-action-btn:hover{background:var(--accent-soft); color:var(--accent-strong);}
+  .activity-row{display:flex; align-items:flex-start; gap:10px; padding:8px 0; border-bottom:1px solid var(--border); cursor:pointer;}
+  .activity-row:last-child{border-bottom:none;}
+
   /* ---------- pills / chips ---------- */
   .pill{display:inline-flex; align-items:center; gap:5px; padding:2.5px 8px; border-radius:20px; font-size:11px; font-weight:700; white-space:nowrap;}
   .dot{width:6px; height:6px; border-radius:50%; flex:0 0 auto;}
@@ -245,6 +261,20 @@
     transition:background .15s var(--ease), color .15s var(--ease), border-color .15s var(--ease), transform .15s var(--ease);}
   .chip-filter:hover{transform:translateY(-1px);}
   .chip-filter.active{background:var(--ink); color:var(--bg); border-color:var(--ink);}
+  .view-tabs{display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-bottom:16px; background:var(--surface-solid); border:1px solid var(--border); border-radius:12px; padding:4px;}
+  .view-tab{padding:7px 14px; border-radius:9px; font-size:12.5px; font-weight:700; color:var(--ink-soft); cursor:pointer; transition:background .15s var(--ease), color .15s var(--ease);}
+  .view-tab:hover{background:var(--surface-2);}
+  .view-tab.active{background:var(--accent); color:var(--accent-ink);}
+  .kanban-board{display:flex; gap:14px; overflow-x:auto; padding-bottom:8px;}
+  .kanban-col{flex:0 0 260px; background:var(--surface-2); border:1px solid var(--border); border-radius:var(--radius-sm); padding:10px; min-height:120px;}
+  .kanban-col.dragover{background:var(--accent-soft); border-color:var(--accent);}
+  .kanban-col-head{display:flex; align-items:center; justify-content:space-between; font-size:12px; font-weight:800; margin-bottom:10px; padding:0 2px;}
+  .kanban-card{background:var(--surface-solid); border:1px solid var(--border); border-radius:9px; padding:10px; margin-bottom:8px; cursor:grab; box-shadow:var(--shadow);}
+  .kanban-card:active{cursor:grabbing;}
+  .kanban-card-name{font-weight:700; font-size:12.5px; margin-bottom:6px;}
+  .timeline-row{display:flex; align-items:center; gap:10px; padding:6px 0; border-bottom:1px solid var(--border);}
+  .timeline-track{position:relative; flex:1; height:20px; background:var(--surface-2); border-radius:6px; overflow:hidden;}
+  .timeline-bar{position:absolute; top:2px; bottom:2px; border-radius:5px; background:linear-gradient(90deg, var(--accent), var(--accent-strong));}
   select.field, input.field, textarea.field{
     border:1px solid var(--border-strong); background:var(--surface-solid); color:var(--ink); border-radius:9px; padding:7px 9px; font-size:12.5px; font-family:inherit;
     transition:box-shadow .15s var(--ease), border-color .15s var(--ease);
@@ -257,6 +287,11 @@
     border-radius:18px; border:1px solid var(--border); width:100%; max-width:640px; box-shadow:0 24px 60px rgba(0,0,0,.28); animation:pop .16s var(--ease);}
   .modal.wide{max-width:920px;}
   @keyframes pop{from{opacity:0; transform:translateY(8px) scale(.99);} to{opacity:1; transform:translateY(0) scale(1);}}
+  .modal-overlay.drawer{justify-content:flex-end; align-items:stretch; padding:0;}
+  .modal.drawer{max-width:600px; width:100%; height:100vh; border-radius:0; border-width:0 0 0 1px; animation:slideInRight .18s var(--ease); display:flex; flex-direction:column;}
+  .modal.drawer .modal-body{flex:1 1 auto; overflow-y:auto;}
+  @keyframes slideInRight{from{transform:translateX(28px); opacity:.5;} to{transform:translateX(0); opacity:1;}}
+  @media(max-width:680px){.modal.drawer{max-width:100%;}}
   .modal-head{display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid var(--border);}
   .modal-head h3{margin:0; font-size:15.5px; font-weight:800;}
   .modal-body{padding:18px 20px;}
@@ -1147,6 +1182,7 @@ const state = {
   calendar: { mode:'month', y: today0.getFullYear(), m: today0.getMonth(), day: todayISO() },
   report: { month: today0.getMonth(), year: today0.getFullYear(), compareMode:false, cMonth:null, cYear:null, dept:'All', project:'All', selectedEmp:null },
   settingsDraft: { newDept:'', newProject:'' },
+  teamTasksTab: 'overview',
   toast: null
 };
 applyTheme(state.theme);
@@ -1830,6 +1866,73 @@ function rankBadge(n){ return '<span class="rank-badge '+(n<=1?'top':'')+'">'+n+
 /* =====================================================================
    11. DASHBOARD — TEAM MEMBER (personal)
    ===================================================================== */
+function timeAgo(iso){
+  if (!iso) return '';
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff/60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return mins+' min'+(mins===1?'':'s')+' ago';
+  const hrs = Math.floor(mins/60);
+  if (hrs < 24) return hrs+' hour'+(hrs===1?'':'s')+' ago';
+  const days = Math.floor(hrs/24);
+  if (days < 7) return days+' day'+(days===1?'':'s')+' ago';
+  return fmtDateShort(iso.slice(0,10));
+}
+function miniMonthCalendar(year, month, taskList){
+  const dueMap = {};
+  taskList.forEach(t => { if (t.status!=='Cancelled'){ (dueMap[t.dueDate]=dueMap[t.dueDate]||[]).push(t); } });
+  const firstDow = (new Date(year, month, 1).getDay() + 6) % 7; // Monday-first
+  const daysInMonth = new Date(year, month+1, 0).getDate();
+  const todayStr = todayISO();
+  let cells = '';
+  for (let i=0;i<firstDow;i++) cells += '<div class="mini-cal-cell empty"></div>';
+  for (let d=1; d<=daysInMonth; d++){
+    const iso = year+'-'+pad2(month+1)+'-'+pad2(d);
+    const list = dueMap[iso];
+    const isToday = iso===todayStr;
+    const dotColor = list ? (list.some(isOverdue) ? 'var(--bad)' : 'var(--accent)') : '';
+    cells += '<div class="mini-cal-cell'+(isToday?' today':'')+'" onclick="setView(\'calendar\')">'+d+(list?'<span class="mini-cal-dot" style="background:'+dotColor+'"></span>':'')+'</div>';
+  }
+  return '<div class="mini-cal-head-row"><span class="card-title">'+monthLabel(year,month)+'</span></div>' +
+    '<div class="mini-cal-grid">' + ['Mo','Tu','We','Th','Fr','Sa','Su'].map(d=>'<div class="mini-cal-dow">'+d+'</div>').join('') + cells + '</div>';
+}
+function myProjectsProgress(taskList){
+  const names = taskList.map(t=>t.project).filter((p,i,arr)=>arr.indexOf(p)===i);
+  const rows = names.map(p => {
+    const list = taskList.filter(t=>t.project===p && t.status!=='Cancelled');
+    const completed = list.filter(t=>t.status==='Completed').length;
+    return { name:p, total:list.length, completed, pct: list.length ? Math.round(completed/list.length*100) : 0 };
+  }).filter(r=>r.total>0).sort((a,b)=>b.total-a.total).slice(0,5);
+  if (!rows.length) return '<div class="empty-state">No projects yet.</div>';
+  return rows.map(r => '<div class="proj-bar-row" onclick="setTaskFilter(\'project\',\''+escAttr(r.name).replace(/'/g,"\\'")+'\');setView(\'mytasks\')">' +
+    '<div class="proj-bar-head"><span>'+DB.projectMascot(r.name)+' '+escHtml(r.name)+'</span><span class="num sub">'+r.completed+'/'+r.total+'</span></div>' +
+    '<span class="bar-track"><span class="bar-fill" style="width:'+r.pct+'%"></span></span>' +
+  '</div>').join('');
+}
+function myQuickActions(){
+  return '<div class="quick-actions-grid">' +
+    '<div class="quick-action-btn" onclick="openCreateTask()">'+icon('plus',18)+'Create Task</div>' +
+    '<div class="quick-action-btn" onclick="setView(\'calendar\')">'+icon('calendar',18)+'Open Calendar</div>' +
+    '<div class="quick-action-btn" onclick="setView(\'mytasks\')">'+icon('check',18)+'My Tasks</div>' +
+    '<div class="quick-action-btn" onclick="setView(\'reports\')">'+icon('chart',18)+'My Reports</div>' +
+  '</div>';
+}
+function recentActivityFeed(taskList, limit){
+  const items = [];
+  taskList.forEach(t => (t.comments||[]).forEach(c => items.push({ c, t })));
+  items.sort((a,b) => a.c.at < b.c.at ? 1 : -1);
+  const top = items.slice(0, limit||6);
+  if (!top.length) return '<div class="empty-state">No recent activity yet.</div>';
+  const verb = { completion:'marked complete', approval:'reviewed', request:'requested resources on', comment:'commented on' };
+  return top.map(({c,t}) => {
+    const author = DB.employees.find(e=>e.id===c.authorId);
+    return '<div class="activity-row" onclick="openTaskDetail(\''+t.id+'\')">' +
+      (author?avatar(author,28):'<span class="avatar" style="width:28px;height:28px;background:var(--neutral-status)">—</span>') +
+      '<div style="flex:1;min-width:0"><div style="font-size:12.5px"><b>'+(author?author.name:'Someone')+'</b> '+(verb[c.type]||'commented on')+' <b>'+escHtml(t.name)+'</b></div>' +
+      '<div class="sub" style="margin-top:1px">'+timeAgo(c.at)+'</div></div>' +
+    '</div>';
+  }).join('');
+}
 function viewDashboardMember(u){
   const now = todayDate();
   const myTasks = DB.tasks.filter(t => t.assignedTo===u.id);
@@ -1838,9 +1941,10 @@ function viewDashboardMember(u){
   const alerts = computeAlerts(myTasks);
   const todayTasks = myTasks.filter(t => t.status!=='Completed' && t.status!=='Cancelled' && (t.dueDate<=todayISO()) ).sort((a,b)=>a.dueDate<b.dueDate?-1:1).slice(0,6);
   const upcoming = myTasks.filter(t => t.status!=='Completed' && t.status!=='Cancelled' && t.dueDate>todayISO() && t.dueDate<=addDaysISO(todayISO(),7)).sort((a,b)=>a.dueDate<b.dueDate?-1:1);
+  const csPersonal = companyStats(myTasks);
 
   return '' +
-  '<div class="page-head"><div><div class="page-title">Welcome back, '+u.name.split(' ')[0]+'</div><div class="page-sub">Today: '+fmtDate(todayISO())+' · '+u.department+'</div></div>' +
+  '<div class="page-head"><div><div class="page-title">'+greeting()+', '+u.name.split(' ')[0]+'! 👋</div><div class="page-sub">"Plan today. Progress tomorrow." · '+fmtDate(todayISO())+' · '+u.department+'</div></div>' +
     '<div class="page-actions"><button class="btn btn-primary" onclick="openCreateTask()">'+icon('plus',14)+' Create Task</button><button class="btn" onclick="setView(\'mytasks\')">'+icon('check',14)+' Go to My Tasks</button></div>' +
   '</div>' +
 
@@ -1851,7 +1955,7 @@ function viewDashboardMember(u){
   '</div></div>' : '') +
 
   '<div class="grid grid-kpi" style="margin-bottom:16px">' +
-    kpiTile('Assigned (month)', stats.assigned) +
+    kpiTile('My Tasks', stats.assigned) +
     kpiTile('Completed', stats.completed, Math.round(stats.completionRate)+'% completion', 'good') +
     kpiTile('Pending', stats.pending) +
     kpiTile('Overdue', stats.overdue, '', stats.overdue>0?'bad':'') +
@@ -1859,19 +1963,33 @@ function viewDashboardMember(u){
   '</div>' +
 
   '<div class="grid grid-2" style="margin-bottom:16px">' +
-    '<div class="card"><div class="card-head"><span class="card-title">Your Tasks — Due Today & Overdue</span></div><div class="card-pad">' +
+    '<div class="card"><div class="card-head"><span class="card-title">Today\'s Tasks ('+fmtDate(todayISO())+')</span><button class="btn btn-sm btn-ghost" onclick="setView(\'mytasks\')">View All →</button></div><div class="card-pad">' +
       (todayTasks.length ? todayTasks.map(t=>priorityRow(t)).join('') : '<div class="empty-state">Nothing due today. Nice work staying ahead.</div>') +
     '</div></div>' +
+    '<div class="stack" style="gap:16px">' +
+      '<div class="card card-pad">' + miniMonthCalendar(now.getFullYear(), now.getMonth(), myTasks) + '</div>' +
+      '<div class="card"><div class="card-head"><span class="card-title">Upcoming</span><span class="sub">next 7 days</span></div><div class="card-pad">' +
+        (upcoming.length ? upcoming.slice(0,4).map(t=>priorityRow(t)).join('') : '<div class="empty-state">No upcoming deadlines.</div>') +
+      '</div></div>' +
+    '</div>' +
+  '</div>' +
+
+  '<div class="grid grid-3" style="margin-bottom:16px">' +
+    '<div class="card"><div class="card-head"><span class="card-title">Task Status</span></div><div class="card-pad">' + taskStatusDonut(csPersonal, 120) + '</div></div>' +
+    '<div class="card"><div class="card-head"><span class="card-title">My Projects</span></div><div class="card-pad">' + myProjectsProgress(myTasks) + '</div></div>' +
+    '<div class="card"><div class="card-head"><span class="card-title">Quick Actions</span></div><div class="card-pad">' + myQuickActions() + '</div></div>' +
+  '</div>' +
+
+  '<div class="grid grid-2" style="margin-bottom:16px">' +
     '<div class="card card-pad">' +
       '<div class="flex gap-14" style="margin-bottom:6px">'+scoreRing(stats.efficiency,72)+'<div><div class="card-title">Your Efficiency Score</div><div class="sub">'+monthLabel(now.getFullYear(),now.getMonth())+' · transparent breakdown below</div></div></div>' +
       efficiencyBreakdownCard(stats) +
       '<button class="btn btn-sm" style="margin-top:8px" onclick="setView(\'reports\')">View full monthly report →</button>' +
     '</div>' +
-  '</div>' +
-
-  '<div class="card"><div class="card-head"><span class="card-title">Upcoming Deadlines</span><span class="sub">next 7 days</span></div><div class="card-pad">' +
-    (upcoming.length ? upcoming.map(t=>priorityRow(t)).join('') : '<div class="empty-state">No upcoming deadlines in the next 7 days.</div>') +
-  '</div></div>';
+    '<div class="card"><div class="card-head"><span class="card-title">Recent Activity</span><span class="sub">your tasks</span></div><div class="card-pad">' +
+      recentActivityFeed(myTasks, 6) +
+    '</div></div>' +
+  '</div>';
 }
 
 /* =====================================================================
@@ -1881,6 +1999,7 @@ const QUICK_FILTERS = ['All','Today','This Week','Overdue','High Priority','Crit
 const PRIORITY_RANK = {Critical:0, High:1, Medium:2, Low:3};
 const STATUS_RANK = {'Not Started':0,'In Progress':1,'On Hold':2,'Completed':3,'Cancelled':4};
 
+function setTeamTasksTab(tab){ state.teamTasksTab = tab; render(); }
 function setQuickFilter(v){ state.taskFilters.quick = v; render(); }
 function setTaskFilter(key, v){ state.taskFilters[key] = v; render(); }
 function setSort(field){
@@ -1934,38 +2053,12 @@ function filterTasks(base, scope){
 
 function sortIndicator(field){ return state.taskSort.field===field ? (state.taskSort.dir==='asc'?' '+icon('arrowup',9):' '+icon('arrowdown',9)) : ''; }
 
-function viewTaskList(opts){
-  const u = currentUser();
-  const scope = opts.scope;
-  const base = scope==='my' ? DB.tasks.filter(t => t.assignedTo===u.id) : visibleTasks();
-  const filtered = filterTasks(base, scope);
-  const f = state.taskFilters;
-  const cs = scope==='all' ? companyStats(base) : null;
-  const members = scope==='all' ? visibleEmployees().filter(e => e.active) : [];
-
-  return '' +
-  '<div class="page-head"><div><div class="page-title">'+(scope==='my'?'My Tasks':'Team Tasks')+'</div><div class="page-sub">'+(scope==='my'?(filtered.length+' of '+base.length+' tasks'+(state.search?' · matching "'+escHtml(state.search)+'"':'')):'Track, manage and collaborate on your team\'s work.')+'</div></div>' +
-    '<div class="page-actions">' + '<button class="btn btn-primary" onclick="openCreateTask()">'+icon('plus',14)+' Create Task</button>' +
-      '<button class="btn btn-sm btn-ghost" onclick="exportTaskCsv()">'+icon('download',13)+' Export CSV</button>' +
-    '</div>' +
-  '</div>' +
-
-  (scope==='all' ? (
-    '<div class="grid grid-kpi" style="margin-bottom:16px">' +
-      kpiTile('Total Tasks', cs.total) +
-      kpiTile('Completed', cs.completed, Math.round(cs.completionRate)+'% completion', 'good') +
-      kpiTile('In Progress', cs.inProgress) +
-      kpiTile('Overdue', cs.overdue, cs.overdue>0?'needs attention':'on track', cs.overdue>0?'bad':'') +
-    '</div>' +
-    '<div class="grid grid-3" style="margin-bottom:16px">' +
-      '<div class="card"><div class="card-head"><span class="card-title">Task Status</span></div><div class="card-pad">' + taskStatusDonut(cs, 120) + '</div></div>' +
-      '<div class="card"><div class="card-head"><span class="card-title">Tasks by Project</span></div><div class="card-pad">' + tasksByProjectBars(base) + '</div></div>' +
-      '<div class="card"><div class="card-head"><span class="card-title">Team Workload</span></div><div class="card-pad">' + teamWorkloadChart(members) + '</div></div>' +
-    '</div>' +
-    '<div class="card-head" style="padding:0;margin-bottom:10px"><span class="card-title" style="font-size:15px">Team Tasks ('+filtered.length+')</span><span class="sub">'+filtered.length+' of '+base.length+' tasks'+(state.search?' · matching "'+escHtml(state.search)+'"':'')+'</span></div>'
-  ) : '') +
-
-  '<div class="filter-bar">' +
+const TEAM_TASKS_TABS = [
+  {id:'overview', label:'Overview'}, {id:'workload', label:'Workload'}, {id:'byproject', label:'By Project'},
+  {id:'bymember', label:'By Team Member'}, {id:'timeline', label:'Timeline'}, {id:'kanban', label:'Kanban'}
+];
+function filterBarAndTable(base, filtered, scope, f){
+  return '<div class="filter-bar">' +
     QUICK_FILTERS.map(qf => '<span class="chip-filter '+(f.quick===qf?'active':'')+'" onclick="setQuickFilter(\''+qf+'\')">'+qf+'</span>').join('') +
   '</div>' +
   '<div class="filter-bar">' +
@@ -1977,7 +2070,6 @@ function viewTaskList(opts){
     selectFilter('level', ['All','1','2','3','4'], f.level, 'Level', {'1':'Level 1','2':'Level 2','3':'Level 3','4':'Level 4'}) +
     '<button class="btn btn-sm btn-ghost" onclick="resetTaskFilters()">'+icon('x',12)+' Clear</button>' +
   '</div>' +
-
   '<div class="card"><div class="table-wrap"><table><thead><tr>' +
     '<th>Task</th>' +
     (scope==='all' ? '<th>Assigned To</th>' : '') +
@@ -1992,6 +2084,134 @@ function viewTaskList(opts){
   '</tbody></table></div>' +
   (filtered.length ? '' : '<div class="empty-state">No tasks match the current filters.</div>') +
   '</div>';
+}
+function teamWorkloadTable(members){
+  if (!members.length) return '<div class="empty-state">No team members yet.</div>';
+  const now = todayDate();
+  const rows = members.map(e => ({ emp:e, stats: computeStats(tasksForEmployeeInMonth(e.id, now.getFullYear(), now.getMonth())) }));
+  return '<div class="table-wrap"><table><thead><tr><th>Team Member</th><th>Assigned</th><th>Completed</th><th>In Progress</th><th>Pending</th><th>Overdue</th><th>Completion</th></tr></thead><tbody>' +
+    rows.map(r => '<tr class="row" onclick="openEmployeeDetail(\''+r.emp.id+'\')"><td class="flex gap-8" style="font-weight:700">'+avatar(r.emp,24)+r.emp.name+'</td>' +
+      '<td class="num">'+r.stats.assigned+'</td><td class="num" style="color:var(--good);font-weight:700">'+r.stats.completed+'</td>' +
+      '<td class="num">'+r.stats.inProgress+'</td><td class="num">'+r.stats.pending+'</td>' +
+      '<td class="num" style="color:'+(r.stats.overdue>0?'var(--bad)':'inherit')+';font-weight:'+(r.stats.overdue>0?'700':'400')+'">'+r.stats.overdue+'</td>' +
+      '<td class="num">'+Math.round(r.stats.completionRate)+'%</td></tr>').join('') +
+  '</tbody></table></div>';
+}
+function teamTimelineView(filtered){
+  if (!filtered.length) return '<div class="empty-state">No tasks match the current filters.</div>';
+  const starts = filtered.map(t=>parseISO(t.startDate).getTime());
+  const ends = filtered.map(t=>parseISO(t.dueDate).getTime());
+  const min = Math.min(...starts), max = Math.max(...ends);
+  const span = Math.max(1, max-min);
+  const rows = filtered.slice().sort((a,b)=>a.startDate<b.startDate?-1:1).slice(0,40);
+  return '<div class="card card-pad">' +
+    '<div class="sub" style="margin-bottom:10px">'+fmtDateShort(toISO(new Date(min)))+' → '+fmtDateShort(toISO(new Date(max)))+'</div>' +
+    rows.map(t => {
+      const s = parseISO(t.startDate).getTime(), e = parseISO(t.dueDate).getTime();
+      const left = (s-min)/span*100, width = Math.max(1.5,(e-s)/span*100);
+      const color = isOverdue(t) ? 'var(--bad)' : t.status==='Completed' ? 'var(--good)' : 'var(--accent)';
+      return '<div class="timeline-row">' +
+        '<span style="width:170px;flex:0 0 auto" class="ellipsis"><span class="task-name-cell" style="font-size:12px" onclick="openTaskDetail(\''+t.id+'\')">'+escHtml(t.name)+'</span></span>' +
+        '<span class="timeline-track"><span class="timeline-bar" style="left:'+left+'%;width:'+width+'%;background:'+color+'" title="'+fmtDateShort(t.startDate)+' – '+fmtDateShort(t.dueDate)+'"></span></span>' +
+        '<span style="width:90px;flex:0 0 auto;text-align:right" class="sub num">'+fmtDateShort(t.dueDate)+'</span>' +
+      '</div>';
+    }).join('') +
+  '</div>';
+}
+function kanbanDragStart(ev, taskId){ ev.dataTransfer.setData('text/plain', taskId); }
+function kanbanDragOver(ev){ ev.preventDefault(); ev.currentTarget.classList.add('dragover'); }
+function kanbanDragLeave(ev){ ev.currentTarget.classList.remove('dragover'); }
+function kanbanDrop(ev, status){
+  ev.preventDefault();
+  ev.currentTarget.classList.remove('dragover');
+  const taskId = ev.dataTransfer.getData('text/plain');
+  const t = DB.tasks.find(x => x.id===taskId);
+  if (!t || !canUpdateProgress(t)) return;
+  if (status === 'Completed'){ state.modal = { type:'taskDetail', taskId, showCompletionPrompt:true, showRejectPrompt:false }; render(); return; }
+  if (status === 'Pending Approval'){ showToast('Open the task and submit for approval from there'); return; }
+  const patch = { status };
+  if (status === 'Not Started') patch.progress = 0;
+  if ((t.status === 'Completed' || t.status === 'Pending Approval') && status !== 'Completed') patch.completionDate = null;
+  DB.updateTask(taskId, patch);
+  render();
+}
+function kanbanView(filtered){
+  const cols = ['Not Started','In Progress','On Hold','Pending Approval','Completed'];
+  return '<div class="kanban-board">' + cols.map(status => {
+    const items = filtered.filter(t => t.status===status);
+    return '<div class="kanban-col" ondragover="kanbanDragOver(event)" ondragleave="kanbanDragLeave(event)" ondrop="kanbanDrop(event,\''+status+'\')">' +
+      '<div class="kanban-col-head"><span>'+status+'</span><span class="pill pill-status-'+STATUS_CLASS[status]+'">'+items.length+'</span></div>' +
+      items.map(t => {
+        const emp = DB.employees.find(e=>e.id===t.assignedTo);
+        return '<div class="kanban-card" draggable="true" ondragstart="kanbanDragStart(event,\''+t.id+'\')" onclick="openTaskDetail(\''+t.id+'\')">' +
+          '<div class="kanban-card-name">'+escHtml(t.name)+'</div>' +
+          '<div class="flex-between" style="margin-bottom:6px">'+priorityPill(t.priority)+(emp?avatar(emp,20):'')+'</div>' +
+          '<div class="sub">'+t.project+' · '+fmtDateShort(t.dueDate)+'</div>' +
+        '</div>';
+      }).join('') +
+      (items.length ? '' : '<div class="sub" style="padding:8px 2px">No tasks</div>') +
+    '</div>';
+  }).join('') + '</div>';
+}
+function viewTaskList(opts){
+  const u = currentUser();
+  const scope = opts.scope;
+  const base = scope==='my' ? DB.tasks.filter(t => t.assignedTo===u.id) : visibleTasks();
+  const filtered = filterTasks(base, scope);
+  const f = state.taskFilters;
+  const cs = scope==='all' ? companyStats(base) : null;
+  const members = scope==='all' ? visibleEmployees().filter(e => e.active) : [];
+  const tab = scope==='all' ? state.teamTasksTab : 'overview';
+
+  let body = '';
+  if (scope === 'my'){
+    body = filterBarAndTable(base, filtered, scope, f);
+  } else if (tab === 'workload'){
+    body = '<div class="grid grid-2" style="margin-bottom:16px">' +
+      '<div class="card"><div class="card-head"><span class="card-title">Team Workload</span><span class="sub">active vs completed (all time)</span></div><div class="card-pad">' + teamWorkloadChart(members) + '</div></div>' +
+      '<div class="card"><div class="card-head"><span class="card-title">Workload Detail</span><span class="sub">this month</span></div><div class="card-pad" style="padding:0">' + teamWorkloadTable(members) + '</div></div>' +
+    '</div>';
+  } else if (tab === 'byproject'){
+    const cards = DB.projects.map(p => {
+      const list = visibleTasks().filter(t => t.project===p);
+      const nonCancelled = list.filter(t => t.status!=='Cancelled');
+      const pstats = computeStats(list);
+      const overdue = nonCancelled.filter(isOverdue).length;
+      const projMembers = Array.from(new Set(list.map(t=>t.assignedTo).filter(Boolean))).map(id => DB.employees.find(e=>e.id===id)).filter(Boolean);
+      return projectCard(p, { total: nonCancelled.length, completed: pstats.completed, overdue, completionRate: pstats.completionRate, efficiency: pstats.efficiency, members: projMembers });
+    });
+    body = '<div class="grid grid-3">' + cards.join('') + '</div>';
+  } else if (tab === 'bymember'){
+    body = '<div class="grid grid-emp">' + members.map(e => employeeCard(e)).join('') + '</div>';
+  } else if (tab === 'timeline'){
+    body = teamTimelineView(filtered);
+  } else if (tab === 'kanban'){
+    body = kanbanView(filtered);
+  } else {
+    body =
+    '<div class="grid grid-kpi" style="margin-bottom:16px">' +
+      kpiTile('Total Tasks', cs.total) +
+      kpiTile('Completed', cs.completed, Math.round(cs.completionRate)+'% completion', 'good') +
+      kpiTile('In Progress', cs.inProgress) +
+      kpiTile('Overdue', cs.overdue, cs.overdue>0?'needs attention':'on track', cs.overdue>0?'bad':'') +
+    '</div>' +
+    '<div class="grid grid-3" style="margin-bottom:16px">' +
+      '<div class="card"><div class="card-head"><span class="card-title">Task Status</span></div><div class="card-pad">' + taskStatusDonut(cs, 120) + '</div></div>' +
+      '<div class="card"><div class="card-head"><span class="card-title">Tasks by Project</span></div><div class="card-pad">' + tasksByProjectBars(base) + '</div></div>' +
+      '<div class="card"><div class="card-head"><span class="card-title">Team Workload</span></div><div class="card-pad">' + teamWorkloadChart(members) + '</div></div>' +
+    '</div>' +
+    '<div class="card-head" style="padding:0;margin-bottom:10px"><span class="card-title" style="font-size:15px">Team Tasks ('+filtered.length+')</span><span class="sub">'+filtered.length+' of '+base.length+' tasks'+(state.search?' · matching "'+escHtml(state.search)+'"':'')+'</span></div>' +
+    filterBarAndTable(base, filtered, scope, f);
+  }
+
+  return '' +
+  '<div class="page-head"><div><div class="page-title">'+(scope==='my'?'My Tasks':'Team Tasks')+'</div><div class="page-sub">'+(scope==='my'?(filtered.length+' of '+base.length+' tasks'+(state.search?' · matching "'+escHtml(state.search)+'"':'')):'Track, manage and collaborate on your team\'s work.')+'</div></div>' +
+    '<div class="page-actions">' + '<button class="btn btn-primary" onclick="openCreateTask()">'+icon('plus',14)+' Create Task</button>' +
+      '<button class="btn btn-sm btn-ghost" onclick="exportTaskCsv()">'+icon('download',13)+' Export CSV</button>' +
+    '</div>' +
+  '</div>' +
+  (scope==='all' ? ('<div class="view-tabs">' + TEAM_TASKS_TABS.map(tb => '<span class="view-tab '+(tab===tb.id?'active':'')+'" onclick="setTeamTasksTab(\''+tb.id+'\')">'+tb.label+'</span>').join('') + '</div>') : '') +
+  body;
 }
 function empLabelMap(){ const m={}; DB.employees.forEach(e=>m[e.id]=e.name); return m; }
 function projectLabelMap(){ const m={}; DB.projects.forEach(p=>m[p]=DB.projectMascot(p)+' '+p); return m; }
@@ -2609,12 +2829,12 @@ function renderTaskDetailModal(taskId){
   const statusOptions = isAdmin() ? STATUSES : (MEMBER_STATUSES.includes(t.status) ? MEMBER_STATUSES : MEMBER_STATUSES.concat([t.status]));
   const originTask = t.linkedTaskId ? DB.tasks.find(x => x.id===t.linkedTaskId) : null;
   const requestedTasks = DB.tasks.filter(x => x.linkedTaskId===t.id);
-  return '<div class="modal-overlay" onclick="if(event.target===this) closeModal()"><div class="modal wide">' +
+  return '<div class="modal-overlay drawer" onclick="if(event.target===this) closeModal()"><div class="modal drawer">' +
     '<div class="modal-head"><div><h3>'+t.name+'</h3><div class="sub mono">'+t.id+'</div></div>' +
       '<div class="flex gap-8">' + (isAdmin()?('<button class="btn btn-sm btn-ghost" onclick="openEditTask(\''+t.id+'\')">'+icon('edit',13)+' Edit</button>'):'') + '<button class="btn btn-sm btn-ghost" onclick="openResourceRequestModal(\''+t.id+'\')">'+icon('users',13)+' Request Resource</button>' + '<span class="close-x" onclick="closeModal()">'+icon('x',15)+'</span></div>' +
     '</div>' +
     '<div class="modal-body">' +
-      '<div class="grid grid-2" style="gap:24px;align-items:start">' +
+      '<div class="stack" style="gap:20px">' +
         '<div class="stack">' +
           '<div class="flex gap-8" style="flex-wrap:wrap">'+priorityPill(t.priority)+levelBars(t.level)+statusPill(t)+'</div>' +
           '<div class="sub">'+escHtml(t.description||'No description provided.')+'</div>' +
