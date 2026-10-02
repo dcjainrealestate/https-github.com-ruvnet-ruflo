@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CallCoach Practice</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <strong>CallCoach</strong> <span class="muted">Phase 0 prototype</span>
+    <span id="mock-badge" class="badge" hidden>Mock mode: canned replies, no AI</span>
+  </header>
+
+  <main>
+    <!-- 1. Learn: brief + visible scorecard -->
+    <section id="brief">
+      <h1 id="sc-title">Loading scenario…</h1>
+      <p><span class="badge" id="sc-difficulty"></span> Prospect: <strong id="sc-prospect"></strong></p>
+      <p id="sc-context"></p>
+      <p><strong>Your goal:</strong> <span id="sc-goal"></span></p>
+      <div class="cols">
+        <div>
+          <h2>Approved product facts</h2>
+          <ul id="sc-knowledge"></ul>
+          <h2>Never do this</h2>
+          <ul id="sc-prohibited"></ul>
+        </div>
+        <div>
+          <h2>How you'll be scored</h2>
+          <table id="sc-scorecard"><thead><tr><th>Criterion</th><th>Weight</th></tr></thead><tbody></tbody></table>
+          <p class="muted" id="sc-rules"></p>
+        </div>
+      </div>
+
+      <h2>Before you call</h2>
+      <div class="row">
+        <label>Language
+          <select id="lang">
+            <option value="en-IN">English (India)</option>
+            <option value="en-US">English (US)</option>
+            <option value="en-GB">English (UK)</option>
+          </select>
+        </label>
+        <button id="mic-test" class="secondary">Test microphone</button>
+        <span id="mic-status" class="muted"></span>
+      </div>
+      <p class="muted">Use headphones so the customer's voice isn't picked up by your mic. Voice works best in Chrome or Edge; you can always type instead.</p>
+      <button id="start" class="primary">Start practice call</button>
+    </section>
+
+    <!-- 2. Live call -->
+    <section id="call" hidden>
+      <div class="call-head">
+        <div><span class="dot" id="live-dot"></span> <strong id="call-state">Connecting…</strong></div>
+        <div><span id="timer">0:00</span> <button id="end" class="danger">End call &amp; get feedback</button></div>
+      </div>
+      <div id="live-transcript" aria-live="polite"></div>
+      <p id="interim" class="muted"></p>
+      <form id="type-form" class="row">
+        <input id="type-input" autocomplete="off" placeholder="Speak, or type what you'd say and press Enter" maxlength="2000">
+        <button class="secondary">Send</button>
+        <button type="button" id="mute" class="secondary">Mute mic</button>
+      </form>
+    </section>
+
+    <!-- 3. Score + coaching -->
+    <section id="results" hidden>
+      <div id="scoring" class="muted">Scoring your call…</div>
+      <div id="result-body" hidden>
+        <div class="score-head">
+          <div class="big" id="overall"></div>
+          <div>
+            <div id="verdict"></div>
+            <div class="muted" id="fail-reasons"></div>
+            <div class="muted" id="delta"></div>
+          </div>
+        </div>
+        <div id="critical"></div>
+        <h2>Score by criterion</h2>
+        <div id="criteria"></div>
+        <div class="cols">
+          <div><h2>Done well</h2><ol id="strengths"></ol></div>
+          <div><h2>Highest-impact improvements</h2><ol id="improvements"></ol></div>
+        </div>
+        <h2>What the prospect was thinking</h2>
+        <ul id="thoughts"></ul>
+        <p id="hidden-concern"></p>
+        <h2>Your next drill (3–5 min)</h2>
+        <p id="drill"></p>
+        <h2>Recording &amp; transcript</h2>
+        <audio id="recording" controls hidden></audio>
+        <div id="final-transcript"></div>
+        <div class="row">
+          <button id="retry" class="primary">Retry this scenario</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
