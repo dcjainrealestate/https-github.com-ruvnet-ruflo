@@ -4,26 +4,29 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>DC Jain Task Management System</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
   /* ============================= TOKENS ============================= */
   :root{
-    --bg:#F3F4F7; --bg-inset:#E9EAEE; --surface:rgba(255,255,255,.66); --surface-2:rgba(255,255,255,.42);
-    --surface-solid:#FFFFFF; --surface-modal:rgba(255,255,255,.93);
-    --border:rgba(32,36,42,.09); --border-strong:rgba(32,36,42,.17);
-    --ink:#20242A; --ink-soft:#565C66; --ink-faint:#878E98;
-    --accent:#FF9933; --accent-strong:#E6811A; --accent-soft:rgba(255,153,51,.15); --accent-ink:#FFFFFF;
-    --gold:#A6790A; --gold-soft:rgba(166,121,10,.14);
-    --good:#1F8A5A; --good-soft:rgba(31,138,90,.13);
-    --warn:#8A5A12; --warn-soft:rgba(138,90,18,.13);
-    --bad:#C8433D; --bad-soft:rgba(200,67,61,.12);
+    --bg:#F7F8FA; --bg-inset:#EEF0F3; --surface:rgba(255,255,255,.86); --surface-2:rgba(255,255,255,.55);
+    --surface-solid:#FFFFFF; --surface-modal:rgba(255,255,255,.96);
+    --border:rgba(16,24,40,.08); --border-strong:rgba(16,24,40,.15);
+    --ink:#101828; --ink-soft:#667085; --ink-faint:#98A2B3;
+    --accent:#FF6500; --accent-strong:#E55400; --accent-soft:rgba(255,101,0,.13); --accent-ink:#FFFFFF;
+    --gold:#B7791F; --gold-soft:rgba(183,121,31,.14);
+    --good:#12B76A; --good-soft:rgba(18,183,106,.13);
+    --warn:#F79009; --warn-soft:rgba(247,144,9,.14);
+    --bad:#F04438; --bad-soft:rgba(240,68,56,.12);
     --info:#3767AC; --info-soft:rgba(55,103,172,.12);
-    --neutral-status:#6B7280; --neutral-soft:rgba(107,114,128,.13);
-    --glow-1:rgba(255,153,51,.14); --glow-2:rgba(107,114,128,.10); --glow-3:rgba(255,153,51,.07);
-    --shadow:0 1px 2px rgba(32,36,42,.06),0 10px 30px rgba(32,36,42,.09);
+    --neutral-status:#667085; --neutral-soft:rgba(102,112,133,.13);
+    --glow-1:rgba(255,101,0,.08); --glow-2:rgba(102,112,133,.06); --glow-3:rgba(255,101,0,.05);
+    --shadow:0 1px 2px rgba(16,24,40,.05),0 8px 24px rgba(16,24,40,.07);
     --glass-blur:blur(18px) saturate(160%);
     --radius:16px; --radius-sm:10px;
     --ease:cubic-bezier(.4,0,.2,1);
-    --font-ui:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    --font-ui:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
     --font-mono:ui-monospace,"SF Mono","Cascadia Mono","Roboto Mono",Menlo,Consolas,monospace;
   }
   /* Theme is a manual per-device choice (the sun/moon toggle in the topbar
@@ -33,14 +36,14 @@
     --surface-solid:#1D2024; --surface-modal:rgba(29,32,36,.94);
     --border:rgba(255,255,255,.10); --border-strong:rgba(255,255,255,.18);
     --ink:#ECEEF1; --ink-soft:#B6BBC2; --ink-faint:#838993;
-    --accent:#FFAA4D; --accent-strong:#FFC178; --accent-soft:rgba(255,170,77,.17); --accent-ink:#241505;
+    --accent:#FF8A3D; --accent-strong:#FFAA66; --accent-soft:rgba(255,138,61,.17); --accent-ink:#241505;
     --gold:#D8A857; --gold-soft:rgba(216,168,87,.16);
     --good:#4FBE7E; --good-soft:rgba(79,190,126,.16);
     --warn:#D9A159; --warn-soft:rgba(217,161,89,.16);
     --bad:#E17272; --bad-soft:rgba(225,114,114,.16);
     --info:#7CA6E0; --info-soft:rgba(124,166,224,.16);
     --neutral-status:#9AA1AA; --neutral-soft:rgba(154,161,170,.16);
-    --glow-1:rgba(255,170,77,.16); --glow-2:rgba(255,255,255,.045); --glow-3:rgba(255,170,77,.08);
+    --glow-1:rgba(255,138,61,.14); --glow-2:rgba(255,255,255,.045); --glow-3:rgba(255,138,61,.07);
     --shadow:0 1px 2px rgba(0,0,0,.4),0 14px 34px rgba(0,0,0,.45);
   }
 
@@ -121,7 +124,11 @@
   .icon-btn:hover{background:var(--surface-2); color:var(--ink); transform:translateY(-1px); box-shadow:var(--shadow);}
   .badge-dot{position:absolute; top:-4px; right:-4px; background:var(--bad); color:#fff; font-size:10px; font-weight:700;
     min-width:16px; height:16px; border-radius:8px; display:flex; align-items:center; justify-content:center; padding:0 3px;}
-  .profile-chip{display:flex; align-items:center; gap:8px; padding:4px 10px 4px 4px; border-radius:22px; border:1px solid var(--border); background:var(--surface-solid); cursor:default;}
+  .profile-chip{display:flex; align-items:center; gap:8px; padding:4px 10px 4px 4px; border-radius:22px; border:1px solid var(--border); background:var(--surface-solid); cursor:pointer; transition:box-shadow .15s var(--ease);}
+  .profile-chip:hover{box-shadow:var(--shadow);}
+  .profile-menu-item{padding:10px 14px; font-size:12.5px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:8px; border-bottom:1px solid var(--border);}
+  .profile-menu-item:last-child{border-bottom:none;}
+  .profile-menu-item:hover{background:var(--surface-2);}
   .avatar{width:26px; height:26px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:800; color:#fff; flex:0 0 auto;}
   .avatar.lg{width:44px; height:44px; font-size:16px;}
   .profile-name{font-size:12.5px; font-weight:700;}
@@ -156,7 +163,7 @@
   .grid-2{grid-template-columns:1.4fr 1fr;}
   .grid-3{grid-template-columns:repeat(3,1fr);}
   .grid-emp{grid-template-columns:repeat(3,1fr);}
-  @media(max-width:1100px){.grid-kpi{grid-template-columns:repeat(3,1fr);} .grid-2{grid-template-columns:1fr;} .grid-emp{grid-template-columns:repeat(2,1fr);}}
+  @media(max-width:1100px){.grid-kpi{grid-template-columns:repeat(3,1fr);} .grid-2{grid-template-columns:1fr;} .grid-3{grid-template-columns:1fr 1fr;} .grid-emp{grid-template-columns:repeat(2,1fr);}}
   @media(max-width:680px){.grid-kpi{grid-template-columns:repeat(2,1fr);} .grid-3{grid-template-columns:1fr;} .grid-emp{grid-template-columns:1fr;}}
 
   .card{background:var(--surface); backdrop-filter:var(--glass-blur); -webkit-backdrop-filter:var(--glass-blur);
@@ -168,11 +175,32 @@
   .card-title{font-size:13px; font-weight:800; letter-spacing:-.01em;}
   .card-title-sm{font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-faint);}
 
-  .kpi{padding:14px 16px;}
+  .kpi{padding:16px 18px;}
+  .kpi-top{display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;}
+  .kpi-ico{width:38px; height:38px; border-radius:50%; display:flex; align-items:center; justify-content:center; flex:0 0 auto;}
+  .kpi-trend{display:inline-flex; align-items:center; gap:3px; font-size:11px; font-weight:800; padding:2px 6px; border-radius:20px;}
+  .kpi-trend.up{color:var(--good); background:var(--good-soft);}
+  .kpi-trend.down{color:var(--bad); background:var(--bad-soft);}
   .kpi-label{font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-faint); font-weight:700;}
   .kpi-value{font-size:26px; font-weight:800; margin-top:6px; letter-spacing:-.02em;}
   .kpi-foot{font-size:11.5px; color:var(--ink-faint); margin-top:4px;}
   .kpi-value.good{color:var(--good);} .kpi-value.bad{color:var(--bad);} .kpi-value.warn{color:var(--warn);}
+
+  /* ---------- donut / project bars / workload chart ---------- */
+  .donut-wrap{display:flex; align-items:center; gap:18px; flex-wrap:wrap;}
+  .donut-svg{transform:rotate(-90deg); flex:0 0 auto;}
+  .donut-center{position:relative;}
+  .donut-center .val{position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;}
+  .donut-center .val b{font-size:20px; font-weight:800; line-height:1;}
+  .donut-center .val span{font-size:10px; color:var(--ink-faint); font-weight:700; text-transform:uppercase; letter-spacing:.05em;}
+  .donut-legend{display:flex; flex-direction:column; gap:7px; flex:1 1 auto; min-width:120px;}
+  .donut-legend-row{display:flex; align-items:center; gap:7px; font-size:12.5px; font-weight:600; cursor:pointer;}
+  .legend-dot{width:9px; height:9px; border-radius:50%; flex:0 0 auto;}
+  .proj-bar-row{padding:7px 0; cursor:pointer;}
+  .proj-bar-head{display:flex; justify-content:space-between; font-size:12.5px; font-weight:600; margin-bottom:5px;}
+  .workload-row{display:flex; align-items:center; gap:10px; padding:6px 0;}
+  .workload-bars{flex:1; display:flex; gap:3px; height:9px;}
+  .workload-bars span{border-radius:4px; background:var(--surface-2); border:1px solid var(--border);}
 
   /* ---------- pills / chips ---------- */
   .pill{display:inline-flex; align-items:center; gap:5px; padding:2.5px 8px; border-radius:20px; font-size:11px; font-weight:700; white-space:nowrap;}
@@ -900,6 +928,111 @@ function companyStats(taskList){
   };
 }
 
+/* ---------- weekly trend helper (real created/completed counts, no fabricated deltas) ---------- */
+function weekWindow(weeksAgo){
+  const end = addDaysISO(todayISO(), -7*weeksAgo);
+  const start = addDaysISO(end, -6);
+  return { start, end };
+}
+function trendPct(curr, prev){
+  if (prev === 0) return curr === 0 ? null : 100;
+  return Math.round((curr - prev) / prev * 100);
+}
+function weeklyTrends(taskList){
+  const base = taskList.filter(t => t.status !== 'Cancelled');
+  const thisWk = weekWindow(0), lastWk = weekWindow(1);
+  const createdThis = base.filter(t => t.createdDate >= thisWk.start && t.createdDate <= thisWk.end).length;
+  const createdLast = base.filter(t => t.createdDate >= lastWk.start && t.createdDate <= lastWk.end).length;
+  const completedThis = base.filter(t => t.completionDate && t.completionDate.slice(0,10) >= thisWk.start && t.completionDate.slice(0,10) <= thisWk.end).length;
+  const completedLast = base.filter(t => t.completionDate && t.completionDate.slice(0,10) >= lastWk.start && t.completionDate.slice(0,10) <= lastWk.end).length;
+  return {
+    createdThis, createdTrend: trendPct(createdThis, createdLast),
+    completedThis, completedTrend: trendPct(completedThis, completedLast)
+  };
+}
+
+/* ---------- Task Status donut (inline SVG, no chart library) ---------- */
+function taskStatusDonut(cs, size){
+  size = size || 150;
+  const segs = [
+    { label:'Completed', value:cs.completed, color:'var(--good)', filterVal:'Completed' },
+    { label:'In Progress', value:cs.inProgress, color:'var(--accent)', filterVal:'In Progress' },
+    { label:'Overdue', value:cs.overdue, color:'var(--bad)', filterVal:null },
+    { label:'Pending', value:cs.pending, color:'var(--neutral-status)', filterVal:null }
+  ].filter(s => s.value > 0);
+  const total = cs.total || 0;
+  const r = (size/2) - 14, c = 2*Math.PI*r, cx = size/2, cy = size/2;
+  let offset = 0;
+  const arcs = total ? segs.map(s => {
+    const frac = s.value/total;
+    const dash = frac*c;
+    const el = '<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="none" stroke="'+s.color+'" stroke-width="16" stroke-dasharray="'+dash+' '+(c-dash)+'" stroke-dashoffset="'+(-offset)+'"/>';
+    offset += dash;
+    return el;
+  }).join('') : '<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="none" stroke="var(--border-strong)" stroke-width="16"/>';
+  return '<div class="donut-wrap">' +
+    '<div class="donut-center" style="width:'+size+'px;height:'+size+'px">' +
+      '<svg class="donut-svg" width="'+size+'" height="'+size+'">'+arcs+'</svg>' +
+      '<div class="val"><b class="num">'+total+'</b><span>Tasks</span></div>' +
+    '</div>' +
+    '<div class="donut-legend">' +
+      (segs.length ? segs.map(s => '<div class="donut-legend-row"'+(s.filterVal?' onclick="goToStatusFilter(\''+s.filterVal+'\')"':'')+'><span class="legend-dot" style="background:'+s.color+'"></span>'+s.label+' <span class="num" style="margin-left:auto;font-weight:800">'+s.value+' ('+(total?Math.round(s.value/total*100):0)+'%)</span></div>').join('') : '<div class="sub">No tasks yet.</div>') +
+    '</div>' +
+  '</div>';
+}
+function goToStatusFilter(status){
+  state.view = isAdmin() ? 'alltasks' : 'mytasks';
+  state.taskFilters = { quick:'All', status:status, dept:'All', project:'All', employee:'All', priority:'All', level:'All' };
+  render();
+}
+
+/* ---------- Tasks by Project bars ---------- */
+function tasksByProjectBars(taskList){
+  const rows = DB.projects.map(p => {
+    const list = taskList.filter(t => t.project === p && t.status !== 'Cancelled');
+    const completed = list.filter(t => t.status === 'Completed').length;
+    return { name:p, count:list.length, completed };
+  }).filter(r => r.count > 0).sort((a,b) => b.count - a.count).slice(0,8);
+  lastProjectBarRows = rows;
+  if (!rows.length) return '<div class="empty-state">No project activity yet.</div>';
+  const max = Math.max(1, ...rows.map(r=>r.count));
+  return rows.map((r,i) => '<div class="proj-bar-row" onclick="goToProjectFilter('+i+')">' +
+    '<div class="proj-bar-head"><span>'+DB.projectMascot(r.name)+' '+escHtml(r.name)+'</span><span class="num" style="font-weight:800">'+r.count+'</span></div>' +
+    '<span class="bar-track"><span class="bar-fill" style="width:'+(r.count/max*100)+'%"></span></span>' +
+  '</div>').join('');
+}
+let lastProjectBarRows = [];
+function goToProjectFilter(i){
+  const row = lastProjectBarRows[i];
+  if (!row) return;
+  state.view = isAdmin() ? 'alltasks' : 'mytasks';
+  state.taskFilters = { quick:'All', status:'All', dept:'All', project:row.name, employee:'All', priority:'All', level:'All' };
+  render();
+}
+
+/* ---------- Team Workload mini bar chart (Assigned vs Completed per member) ---------- */
+function teamWorkloadChart(members){
+  if (!members.length) return '<div class="empty-state">No team members yet.</div>';
+  const rows = members.map(e => {
+    const list = DB.tasks.filter(t => t.assignedTo===e.id && t.status!=='Cancelled');
+    return { emp:e, assigned: list.filter(t=>t.status!=='Completed').length, completed: list.filter(t=>t.status==='Completed').length };
+  });
+  const max = Math.max(1, ...rows.map(r => r.assigned + r.completed));
+  return '<div class="flex gap-10" style="font-size:11px;color:var(--ink-faint);font-weight:700;margin-bottom:8px">' +
+      '<span class="flex gap-6"><span class="legend-dot" style="background:var(--accent)"></span>Assigned</span>' +
+      '<span class="flex gap-6"><span class="legend-dot" style="background:var(--good)"></span>Completed</span>' +
+    '</div>' +
+    rows.map(r => '<div class="workload-row" style="cursor:pointer" onclick="openEmployeeDetail(\''+r.emp.id+'\')">' +
+      '<span style="width:76px;flex:0 0 auto;font-size:12px;font-weight:600" class="ellipsis">'+r.emp.name.split(' ')[0]+'</span>' +
+      '<span class="workload-bars">' +
+        '<span style="flex:'+Math.max(r.assigned,0.001)+';background:var(--accent)"></span>' +
+        '<span style="flex:'+Math.max(r.completed,0.001)+';background:var(--good)"></span>' +
+        (r.assigned+r.completed===0 ? '<span style="flex:1"></span>' : '') +
+      '</span>' +
+      '<span style="width:42px;text-align:right;font-size:11px" class="sub num">'+r.assigned+'/'+r.completed+'</span>' +
+    '</div>').join('');
+}
+
 function leaderboard(y, m, opts){
   opts = opts || {};
   let members = visibleEmployees().filter(e => e.active);
@@ -1133,6 +1266,7 @@ function switchUser(id){
   render();
 }
 function toggleNotif(){ state.notifOpen = !state.notifOpen; render(); }
+function toggleProfileMenu(){ state.profileMenuOpen = !state.profileMenuOpen; render(); }
 function onSearchInput(v){ state.search = v; render(); }
 function closeModal(){ state.modal = null; state.taskDraft = null; state.employeeDraft = null; render(); }
 
@@ -1223,11 +1357,13 @@ function openNotification(id){
 const NAV = [
   {id:'dashboard', label:'Dashboard', icon:'grid', roles:['admin','member']},
   {id:'mytasks', label:'My Tasks', icon:'check', roles:['admin','member']},
-  {id:'alltasks', label:'All Tasks', icon:'list', roles:['admin']},
-  {id:'calendar', label:'Calendar', icon:'calendar', roles:['admin','member']},
+  {id:'alltasks', label:'Team Tasks', icon:'list', roles:['admin']},
   {id:'projects', label:'Projects', icon:'folder', roles:['admin','member']},
-  {id:'team', label:'Team', icon:'users', roles:['admin']},
+  {id:'calendar', label:'Calendar', icon:'calendar', roles:['admin','member']},
+  {id:'files', label:'Files', icon:'download', roles:['admin','member']},
+  {id:'timelog', label:'Time Log', icon:'clock', roles:['admin','member']},
   {id:'reports', label:'Reports', icon:'chart', roles:['admin','member']},
+  {id:'team', label:'Users', icon:'users', roles:['admin']},
   {id:'settings', label:'Settings', icon:'gear', roles:['admin']}
 ];
 
@@ -1329,7 +1465,7 @@ function renderShell(){
   return '' +
   (state.sidebarOpen ? '<div class="sidebar-backdrop" onclick="toggleSidebar()"></div>' : '') +
   '<aside class="sidebar'+(state.sidebarOpen?' open':'')+'">' +
-    '<div class="brand"><div class="brand-mark">DJ</div><div><div class="brand-name">DC Jain</div><div class="brand-sub">Task Management System</div></div></div>' +
+    '<div class="brand"><img src="assets/logo.png" alt="DC Jain Real Estate" style="height:34px;width:auto;max-width:160px;object-fit:contain" /></div>' +
     '<nav class="nav">' +
       NAV.filter(n => n.roles.includes(u.role)).map(n =>
         '<div class="nav-item '+(state.view===n.id?'active':'')+'" onclick="setView(\''+n.id+'\')">' +
@@ -1390,7 +1526,17 @@ function renderTopbar(u, alerts, notifCount){
       '<button class="icon-btn" onclick="toggleNotif()" title="Notifications">'+icon('bell')+(notifCount>0?'<span class="badge-dot">'+notifCount+'</span>':'')+'</button>' +
       (state.notifOpen ? renderNotifPanel(alerts, u) : '') +
     '</div>' +
-    '<div class="profile-chip">' + avatar(u,26) + '<div><div class="profile-name">'+u.name+'</div><div class="profile-role">'+(u.role==='admin'?'Admin · '+u.department:u.department)+'</div></div></div>' +
+    '<div style="position:relative">' +
+      '<div class="profile-chip" onclick="toggleProfileMenu()">' + avatar(u,26) + '<div><div class="profile-name">'+u.name+'</div><div class="profile-role">'+(u.role==='admin'?(u.title||'Admin')+' · '+u.department:u.department)+'</div></div>'+icon('chevrondown',11)+'</div>' +
+      (state.profileMenuOpen ? renderProfileMenu(u) : '') +
+    '</div>' +
+  '</div>';
+}
+function renderProfileMenu(u){
+  return '<div class="notif-panel" style="width:200px">' +
+    '<div class="profile-menu-item" onclick="state.profileMenuOpen=false;openEmployeeDetail(\''+u.id+'\')">'+icon('user',13)+' My Profile</div>' +
+    '<div class="profile-menu-item" onclick="toggleTheme()">'+icon(state.theme==='dark'?'sun':'moon',13)+' '+(state.theme==='dark'?'Light Mode':'Dark Mode')+'</div>' +
+    '<div class="profile-menu-item" onclick="signOut()">'+icon('x',13)+' Switch Account</div>' +
   '</div>';
 }
 
@@ -1463,18 +1609,38 @@ function renderView(u){
     case 'alltasks': return isAdmin() ? viewTaskList({ scope:'all' }) : viewDashboardMember(u);
     case 'calendar': return viewCalendar(u);
     case 'projects': return viewProjects();
+    case 'files': return renderComingSoon('Files', 'A shared, searchable place for every attachment across your tasks and projects is coming in a later update.', 'folder');
+    case 'timelog': return renderComingSoon('Time Log', 'Start/stop timers and manual time entries per task are coming in a later update.', 'clock');
     case 'team': return isAdmin() ? viewTeam() : viewDashboardMember(u);
     case 'reports': return viewReports(u);
     case 'settings': return isAdmin() ? viewSettings() : viewDashboardMember(u);
     default: return '<div class="empty-state">Not found</div>';
   }
 }
+function renderComingSoon(title, body, iconName){
+  return '<div class="page-head"><div><div class="page-title">'+title+'</div><div class="page-sub">Coming soon</div></div></div>' +
+    '<div class="card card-pad" style="text-align:center;padding:60px 24px">' +
+      '<div style="width:56px;height:56px;border-radius:50%;background:var(--accent-soft);color:var(--accent-strong);display:flex;align-items:center;justify-content:center;margin:0 auto 14px">'+icon(iconName,24)+'</div>' +
+      '<div style="font-weight:800;font-size:15px;margin-bottom:6px">'+title+' is on the way</div>' +
+      '<div class="sub" style="max-width:420px;margin:0 auto">'+body+'</div>' +
+    '</div>';
+}
 
 /* =====================================================================
    9. SHARED SMALL COMPONENTS
    ===================================================================== */
-function kpiTile(label, value, foot, cls){
-  return '<div class="card kpi"><div class="kpi-label">'+label+'</div><div class="kpi-value num '+(cls||'')+'">'+value+'</div>'+(foot?'<div class="kpi-foot">'+foot+'</div>':'')+'</div>';
+const KPI_ICON_MAP = [[/overdue/i,'alert','bad'], [/completed/i,'check','good'], [/progress/i,'clock','warn'], [/pending/i,'clock','warn'], [/efficiency/i,'chart','accent'], [/assigned|total/i,'list','accent']];
+function kpiTile(label, value, foot, cls, trend, onclick){
+  const match = KPI_ICON_MAP.find(m => m[0].test(label));
+  const iconName = match ? match[1] : 'list';
+  const colorVar = match ? match[2] : 'accent';
+  const trendHtml = (trend!=null && isFinite(trend)) ? '<span class="kpi-trend '+(trend>=0?'up':'down')+'">'+icon(trend>=0?'arrowup':'arrowdown',9)+' '+Math.abs(trend)+'%</span>' : '';
+  return '<div class="card kpi"'+(onclick?' style="cursor:pointer" onclick="'+onclick+'"':'')+'>' +
+    '<div class="kpi-top"><div class="kpi-ico" style="background:var(--'+colorVar+'-soft);color:var(--'+colorVar+(colorVar==='accent'?'-strong':'')+')">'+icon(iconName,16)+'</div>'+trendHtml+'</div>' +
+    '<div class="kpi-value num '+(cls||'')+'">'+value+'</div>' +
+    '<div class="kpi-label">'+label+'</div>' +
+    (foot?'<div class="kpi-foot">'+foot+'</div>':'') +
+  '</div>';
 }
 function scoreRing(score, size){
   size = size || 64;
@@ -1527,6 +1693,10 @@ function employeeCard(emp, opts){
 /* =====================================================================
    10. DASHBOARD — ADMIN
    ===================================================================== */
+function greeting(){
+  const h = new Date().getHours();
+  return h < 12 ? 'Good Morning' : h < 17 ? 'Good Afternoon' : 'Good Evening';
+}
 function viewDashboardAdmin(){
   const cs = companyStats(visibleTasks());
   const alerts = computeAlerts(visibleTasks());
@@ -1548,8 +1718,10 @@ function viewDashboardAdmin(){
   const upcoming = visibleTasks().filter(t => t.status!=='Completed' && t.status!=='Cancelled' && t.dueDate>=todayISO() && t.dueDate<=addDaysISO(todayISO(),7))
     .sort((a,b)=> a.dueDate<b.dueDate?-1:1).slice(0,8);
 
+  const trends = weeklyTrends(visibleTasks());
+
   return '' +
-  '<div class="page-head"><div><div class="page-title">Team Task Management</div><div class="page-sub">Today: '+fmtDate(todayISO())+'</div></div>' +
+  '<div class="page-head"><div><div class="page-title">'+greeting()+', '+currentUser().name.split(' ')[0]+'! 👋</div><div class="page-sub">Here\'s what\'s happening with your team today · '+fmtDate(todayISO())+'</div></div>' +
     '<div class="page-actions"><button class="btn btn-primary" onclick="openCreateTask()">'+icon('plus',14)+' Create Task</button></div>' +
   '</div>' +
 
@@ -1570,11 +1742,16 @@ function viewDashboardAdmin(){
   '</div></div>' : '') +
 
   '<div class="grid grid-kpi" style="margin-bottom:16px">' +
-    kpiTile('Total Tasks', cs.total) +
-    kpiTile('Completed', cs.completed, Math.round(cs.completionRate)+'% completion', 'good') +
+    kpiTile('Total Tasks', cs.total, trends.createdThis+' created this week', '', trends.createdTrend) +
+    kpiTile('Completed', cs.completed, Math.round(cs.completionRate)+'% completion', 'good', trends.completedTrend) +
     kpiTile('In Progress', cs.inProgress) +
     kpiTile('Overdue', cs.overdue, cs.overdue>0?'needs attention':'on track', cs.overdue>0?'bad':'') +
     kpiTile('Efficiency', Math.round(cs.teamEfficiency), 'On-time '+Math.round(cs.onTimeRate)+'% · Avg '+cs.avgCompletionDays.toFixed(1)+'d') +
+  '</div>' +
+
+  '<div class="grid grid-2" style="margin-bottom:16px">' +
+    '<div class="card"><div class="card-head"><span class="card-title">Task Status</span><span class="sub">all active + recent work</span></div><div class="card-pad">' + taskStatusDonut(cs) + '</div></div>' +
+    '<div class="card"><div class="card-head"><span class="card-title">Tasks by Project</span><span class="sub">click to filter</span></div><div class="card-pad">' + tasksByProjectBars(visibleTasks()) + '</div></div>' +
   '</div>' +
 
   '<div class="grid grid-2" style="margin-bottom:16px">' +
@@ -1763,13 +1940,30 @@ function viewTaskList(opts){
   const base = scope==='my' ? DB.tasks.filter(t => t.assignedTo===u.id) : visibleTasks();
   const filtered = filterTasks(base, scope);
   const f = state.taskFilters;
+  const cs = scope==='all' ? companyStats(base) : null;
+  const members = scope==='all' ? visibleEmployees().filter(e => e.active) : [];
 
   return '' +
-  '<div class="page-head"><div><div class="page-title">'+(scope==='my'?'My Tasks':'All Tasks')+'</div><div class="page-sub">'+filtered.length+' of '+base.length+' tasks'+(state.search?' · matching "'+escHtml(state.search)+'"':'')+'</div></div>' +
+  '<div class="page-head"><div><div class="page-title">'+(scope==='my'?'My Tasks':'Team Tasks')+'</div><div class="page-sub">'+(scope==='my'?(filtered.length+' of '+base.length+' tasks'+(state.search?' · matching "'+escHtml(state.search)+'"':'')):'Track, manage and collaborate on your team\'s work.')+'</div></div>' +
     '<div class="page-actions">' + '<button class="btn btn-primary" onclick="openCreateTask()">'+icon('plus',14)+' Create Task</button>' +
       '<button class="btn btn-sm btn-ghost" onclick="exportTaskCsv()">'+icon('download',13)+' Export CSV</button>' +
     '</div>' +
   '</div>' +
+
+  (scope==='all' ? (
+    '<div class="grid grid-kpi" style="margin-bottom:16px">' +
+      kpiTile('Total Tasks', cs.total) +
+      kpiTile('Completed', cs.completed, Math.round(cs.completionRate)+'% completion', 'good') +
+      kpiTile('In Progress', cs.inProgress) +
+      kpiTile('Overdue', cs.overdue, cs.overdue>0?'needs attention':'on track', cs.overdue>0?'bad':'') +
+    '</div>' +
+    '<div class="grid grid-3" style="margin-bottom:16px">' +
+      '<div class="card"><div class="card-head"><span class="card-title">Task Status</span></div><div class="card-pad">' + taskStatusDonut(cs, 120) + '</div></div>' +
+      '<div class="card"><div class="card-head"><span class="card-title">Tasks by Project</span></div><div class="card-pad">' + tasksByProjectBars(base) + '</div></div>' +
+      '<div class="card"><div class="card-head"><span class="card-title">Team Workload</span></div><div class="card-pad">' + teamWorkloadChart(members) + '</div></div>' +
+    '</div>' +
+    '<div class="card-head" style="padding:0;margin-bottom:10px"><span class="card-title" style="font-size:15px">Team Tasks ('+filtered.length+')</span><span class="sub">'+filtered.length+' of '+base.length+' tasks'+(state.search?' · matching "'+escHtml(state.search)+'"':'')+'</span></div>'
+  ) : '') +
 
   '<div class="filter-bar">' +
     QUICK_FILTERS.map(qf => '<span class="chip-filter '+(f.quick===qf?'active':'')+'" onclick="setQuickFilter(\''+qf+'\')">'+qf+'</span>').join('') +
