@@ -159,7 +159,7 @@
 
   /* ---------- cards / grid ---------- */
   .grid{display:grid; gap:14px;}
-  .grid-kpi{grid-template-columns:repeat(5,1fr);}
+  .grid-kpi{grid-template-columns:repeat(auto-fit,minmax(150px,1fr));}
   .grid-2{grid-template-columns:1.4fr 1fr;}
   .grid-3{grid-template-columns:repeat(3,1fr);}
   .grid-emp{grid-template-columns:repeat(3,1fr);}
@@ -232,6 +232,9 @@
   .pill-status-completed{background:var(--good-soft); color:var(--good);}
   .pill-status-cancelled{background:var(--surface-2); color:var(--ink-faint); text-decoration:line-through;}
   .pill-overdue{background:var(--bad); color:#fff;}
+  .pill-urgent{background:var(--bad); color:#fff; animation:urgentPulse 2s ease-in-out infinite;}
+  @keyframes urgentPulse{0%,100%{opacity:1;} 50%{opacity:.72;}}
+  .pill-fixed{background:var(--neutral-soft); color:var(--neutral-status);}
   .level-bars{display:inline-flex; align-items:flex-end; gap:2px; height:12px; vertical-align:middle;}
   .level-bars i{width:3px; display:block; background:var(--border-strong); border-radius:1px;}
   .level-bars i:nth-child(1){height:4px;} .level-bars i:nth-child(2){height:7px;} .level-bars i:nth-child(3){height:10px;} .level-bars i:nth-child(4){height:13px;}
@@ -423,6 +426,9 @@ const DB = (function(){
   // resource requests (a task created from inside another task, asking a
   // teammate for something). Same graceful-degradation approach as above.
   let linkedTaskSupported = true;
+  // Whether the urgent-work / schedule-type columns exist yet on `tasks`.
+  // Same graceful-degradation approach as above.
+  let urgentFieldsSupported = true;
   const deptRows = [];   // internal {dbId, name} — departments/projects are
   const projRows = [];   // plain TEXT columns on tasks/employees, not FKs
 
@@ -459,7 +465,9 @@ const DB = (function(){
       department:row.department, project:row.project, createdDate:row.created_date, startDate:row.start_date, dueDate:row.due_date,
       priority:row.priority, level:row.level, status:row.status, estimatedHours:row.estimated_hours, actualHours:row.actual_hours,
       completionDate:row.completion_date, progress:row.progress, completionNotes:row.completion_notes||'', recurrence:row.recurrence||null,
-      linkedTaskId: row.linked_task_id!=null ? 'T'+String(row.linked_task_id).padStart(3,'0') : null, comments:[] };
+      linkedTaskId: row.linked_task_id!=null ? 'T'+String(row.linked_task_id).padStart(3,'0') : null,
+      isUrgent: !!row.is_urgent, urgencyReason: row.urgency_reason||'', scheduleType: row.schedule_type||'flexible',
+      dailySequence: row.daily_sequence!=null ? row.daily_sequence : null, comments:[] };
   }
   function mapCommentRow(row){
     return { id:'C'+row.id, dbId:row.id, taskDbId:row.task_id, text:row.text, authorId: row.author_id!=null ? 'E'+row.author_id : null,
@@ -526,6 +534,13 @@ const DB = (function(){
       linkedTaskSupported = !error;
       if (error) console.warn('Resource requests unavailable — run add_linked_task_column.sql in Supabase to enable it.', error.message);
     } catch(e){ linkedTaskSupported = false; }
+
+    // Same probe for urgent-work / schedule-type fields.
+    try {
+      const { error } = await sb.from('tasks').select('is_urgent,urgency_reason,schedule_type,daily_sequence').limit(1);
+      urgentFieldsSupported = !error;
+      if (error) console.warn('Urgent Work unavailable — run add_urgent_work_columns.sql in Supabase to enable it.', error.message);
+    } catch(e){ urgentFieldsSupported = false; }
   }
 
   function setupRealtime(onChange){
@@ -546,8 +561,10 @@ const DB = (function(){
           const existing = tasks.find(t => t.dbId === mapped.dbId);
           const u = typeof currentUser === 'function' ? currentUser() : null;
           const justAssignedToMe = u && mapped.assignedTo === u.id && (!existing || existing.assignedTo !== mapped.assignedTo);
+          const justMadeUrgentForMe = u && mapped.assignedTo === u.id && mapped.isUrgent && (!existing || !existing.isUrgent);
           if (existing){ mapped.comments = existing.comments; Object.assign(existing, mapped); } else { tasks.push(mapped); }
-          if (justAssignedToMe) notifyEvent('New task assigned', mapped.name);
+          if (justMadeUrgentForMe) notifyEvent('🔴 Urgent task: ' + mapped.name, mapped.urgencyReason || 'Needs your attention right away.');
+          else if (justAssignedToMe) notifyEvent('New task assigned', mapped.name);
         }
         onChange();
       })
@@ -638,6 +655,10 @@ const DB = (function(){
     };
     if (recurrenceSupported) row.recurrence = t.recurrence||null;
     if (linkedTaskSupported) row.linked_task_id = rawId(t.linkedTaskId);
+    if (urgentFieldsSupported){
+      row.is_urgent = t.isUrgent===true; row.urgency_reason = t.urgencyReason||null;
+      row.schedule_type = t.scheduleType||'flexible'; row.daily_sequence = t.dailySequence!=null?t.dailySequence:null;
+    }
     const { data, error } = await sb.from('tasks').insert(row).select().single();
     if (error) throw error;
     const mapped = mapTaskRow(data);
@@ -656,6 +677,10 @@ const DB = (function(){
     };
     if (recurrenceSupported) row.recurrence = t.recurrence||null;
     if (linkedTaskSupported) row.linked_task_id = rawId(t.linkedTaskId);
+    if (urgentFieldsSupported){
+      row.is_urgent = t.isUrgent===true; row.urgency_reason = t.urgencyReason||null;
+      row.schedule_type = t.scheduleType||'flexible'; row.daily_sequence = t.dailySequence!=null?t.dailySequence:null;
+    }
     sb.from('tasks').update(row).eq('id', t.dbId).then(({error}) => { if (error) showToast('Could not save that change — check your connection'); });
     return t;
   }
@@ -830,6 +855,8 @@ function statusPill(t){
   if (isOverdue(t)) html += ' <span class="pill pill-overdue">Overdue</span>';
   return html;
 }
+function urgentBadge(t){ return t.isUrgent ? '<span class="pill pill-urgent">'+icon('alert',10)+' URGENT</span>' : ''; }
+function fixedBadge(t){ return t.scheduleType==='fixed' ? '<span class="pill pill-fixed">'+icon('calendar',10)+' Fixed</span>' : ''; }
 function levelBars(level){
   let bars = '';
   for (let i=1;i<=4;i++) bars += '<i class="'+(i<=level?'on':'')+'"></i>';
@@ -947,6 +974,7 @@ function companyStats(taskList){
   const overdue = all.filter(isOverdue);
   const inProgress = all.filter(t => t.status === 'In Progress' && !isOverdue(t));
   const pending = all.filter(t => (t.status === 'Not Started' || t.status === 'On Hold') && !isOverdue(t));
+  const urgent = all.filter(t => t.isUrgent && t.status !== 'Completed');
   const onTime = completed.filter(t => t.completionDate && t.completionDate.slice(0,10) <= t.dueDate);
   const durations = completed.filter(t => t.startDate && t.completionDate).map(t => daysBetween(t.startDate, t.completionDate.slice(0,10)));
   const avgCompletionDays = durations.length ? (durations.reduce((a,b)=>a+b,0)/durations.length) : 0;
@@ -956,7 +984,7 @@ function companyStats(taskList){
   const teamEfficiency = effs.length ? effs.reduce((a,b)=>a+b,0)/effs.length : 0;
   return {
     total: all.length, completed: completed.length, inProgress: inProgress.length, pending: pending.length,
-    pendingApproval: pendingApproval.length, overdue: overdue.length,
+    pendingApproval: pendingApproval.length, overdue: overdue.length, urgent: urgent.length,
     completionRate: all.length ? completed.length/all.length*100 : 0,
     onTimeRate: completed.length ? onTime.length/completed.length*100 : 0,
     avgCompletionDays, teamEfficiency
@@ -1392,6 +1420,7 @@ function openNotification(id){
    ===================================================================== */
 const NAV = [
   {id:'dashboard', label:'Dashboard', icon:'grid', roles:['admin','member']},
+  {id:'myday', label:'My Day', icon:'sparkle', roles:['admin','member']},
   {id:'mytasks', label:'My Tasks', icon:'check', roles:['admin','member']},
   {id:'alltasks', label:'Team Tasks', icon:'list', roles:['admin']},
   {id:'projects', label:'Projects', icon:'folder', roles:['admin','member']},
@@ -1635,12 +1664,19 @@ function goToAlert(kind){
   if (kind==='pendingApproval') state.taskFilters.status = 'Pending Approval';
   render();
 }
+function goToUrgentFilter(){
+  state.view = isAdmin() ? 'alltasks' : 'mytasks';
+  state.teamTasksTab = 'overview';
+  state.taskFilters = { quick:'Urgent', status:'All', dept:'All', project:'All', employee:'All', priority:'All', level:'All' };
+  render();
+}
 function escAttr(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
 function escHtml(s){ return escAttr(s); }
 
 function renderView(u){
   switch(state.view){
     case 'dashboard': return isAdmin() ? viewDashboardAdmin() : viewDashboardMember(u);
+    case 'myday': return viewMyDay(u);
     case 'mytasks': return viewTaskList({ scope:'my' });
     case 'alltasks': return isAdmin() ? viewTaskList({ scope:'all' }) : viewDashboardMember(u);
     case 'calendar': return viewCalendar(u);
@@ -1665,7 +1701,7 @@ function renderComingSoon(title, body, iconName){
 /* =====================================================================
    9. SHARED SMALL COMPONENTS
    ===================================================================== */
-const KPI_ICON_MAP = [[/overdue/i,'alert','bad'], [/completed/i,'check','good'], [/progress/i,'clock','warn'], [/pending/i,'clock','warn'], [/efficiency/i,'chart','accent'], [/assigned|total/i,'list','accent']];
+const KPI_ICON_MAP = [[/urgent/i,'alert','bad'], [/overdue/i,'alert','bad'], [/completed/i,'check','good'], [/progress/i,'clock','warn'], [/pending/i,'clock','warn'], [/efficiency/i,'chart','accent'], [/assigned|total/i,'list','accent']];
 function kpiTile(label, value, foot, cls, trend, onclick){
   const match = KPI_ICON_MAP.find(m => m[0].test(label));
   const iconName = match ? match[1] : 'list';
@@ -1782,6 +1818,7 @@ function viewDashboardAdmin(){
     kpiTile('Completed', cs.completed, Math.round(cs.completionRate)+'% completion', 'good', trends.completedTrend) +
     kpiTile('In Progress', cs.inProgress) +
     kpiTile('Overdue', cs.overdue, cs.overdue>0?'needs attention':'on track', cs.overdue>0?'bad':'') +
+    kpiTile('Urgent Tasks', cs.urgent, cs.urgent>0?'needs attention':'none right now', cs.urgent>0?'bad':'', null, 'goToUrgentFilter()') +
     kpiTile('Efficiency', Math.round(cs.teamEfficiency), 'On-time '+Math.round(cs.onTimeRate)+'% · Avg '+cs.avgCompletionDays.toFixed(1)+'d') +
   '</div>' +
 
@@ -1821,12 +1858,80 @@ function viewDashboardAdmin(){
     monthlyPreviewTable(lb.slice(0,5)) +
   '</div></div>';
 }
+/* ---------- My Day — urgent-first smart ordering (sections 43/44) ---------- */
+function myDayBuckets(taskList){
+  const pool = taskList.filter(t => t.status!=='Completed' && t.status!=='Cancelled');
+  const used = new Set();
+  function take(pred){ const list = pool.filter(t => !used.has(t.id) && pred(t)); list.forEach(t=>used.add(t.id)); return list; }
+  const byDue = (a,b)=> a.dueDate<b.dueDate?-1:(a.dueDate>b.dueDate?1:0);
+  const urgent = take(t=>t.isUrgent).sort(byDue);
+  const fixed = take(t=>t.scheduleType==='fixed').sort(byDue);
+  const overdue = take(isOverdue).sort(byDue);
+  const dueToday = take(t=>t.dueDate===todayISO()).sort(byDue);
+  const highPriority = take(t=>t.priority==='Critical'||t.priority==='High').sort(byDue);
+  const lowPriority = take(t=>t.priority==='Low').sort(byDue);
+  const planned = take(()=>true).sort((a,b) => {
+    if (a.dailySequence!=null && b.dailySequence!=null) return a.dailySequence-b.dailySequence;
+    if (a.dailySequence!=null) return -1;
+    if (b.dailySequence!=null) return 1;
+    return byDue(a,b);
+  });
+  return [
+    {key:'urgent', label:'🔴 Urgent', list:urgent, draggable:false},
+    {key:'fixed', label:'📌 Fixed / Meetings', list:fixed, draggable:false},
+    {key:'overdue', label:'⚠️ Overdue', list:overdue, draggable:false},
+    {key:'duetoday', label:'Due Today', list:dueToday, draggable:false},
+    {key:'highpriority', label:'High Priority', list:highPriority, draggable:false},
+    {key:'planned', label:'Planned Work', list:planned, draggable:true},
+    {key:'lowpriority', label:'Low Priority', list:lowPriority, draggable:false}
+  ];
+}
+function myDayDragStart(ev, taskId){ ev.dataTransfer.setData('text/plain', taskId); }
+function myDayDrop(ev, targetTaskId){
+  ev.preventDefault();
+  const draggedId = ev.dataTransfer.getData('text/plain');
+  if (!draggedId || draggedId === targetTaskId) return;
+  const u = currentUser();
+  const planned = myDayBuckets(DB.tasks.filter(t=>t.assignedTo===u.id)).find(b=>b.key==='planned').list;
+  const ids = planned.map(t=>t.id);
+  const from = ids.indexOf(draggedId), to = ids.indexOf(targetTaskId);
+  if (from===-1 || to===-1) return;
+  ids.splice(to, 0, ids.splice(from,1)[0]);
+  ids.forEach((taskId, i) => DB.updateTask(taskId, { dailySequence: (i+1)*10 }));
+  showToast('Schedule manually adjusted');
+  render();
+}
+function myDayRow(t, draggable){
+  const emp = DB.employees.find(e=>e.id===t.assignedTo);
+  return '<div class="flex gap-10" style="padding:9px 0;border-bottom:1px solid var(--border);cursor:pointer" ' +
+    (draggable ? ('draggable="true" ondragstart="myDayDragStart(event,\''+t.id+'\')" ondragover="event.preventDefault()" ondrop="myDayDrop(event,\''+t.id+'\')"') : '') +
+    ' onclick="openTaskDetail(\''+t.id+'\')">' +
+    (draggable ? '<span class="sub" style="cursor:grab" title="Drag to reorder">⠿</span>' : '') +
+    (emp?avatar(emp,24):'') +
+    '<div style="flex:1;min-width:0"><div style="font-weight:700;font-size:12.5px">'+escHtml(t.name)+'</div><div class="sub">'+t.project+' · Due '+fmtDateShort(t.dueDate)+'</div></div>' +
+    urgentBadge(t) + fixedBadge(t) + priorityPill(t.priority) +
+  '</div>';
+}
+function viewMyDay(u){
+  const myTasks = DB.tasks.filter(t => t.assignedTo===u.id);
+  const buckets = myDayBuckets(myTasks);
+  const nonEmpty = buckets.filter(b=>b.list.length);
+  return '' +
+  '<div class="page-head"><div><div class="page-title">My Day</div><div class="page-sub">Your work, automatically prioritized · '+fmtDate(todayISO())+'</div></div>' +
+    '<div class="page-actions"><button class="btn btn-primary" onclick="openCreateTask()">'+icon('plus',14)+' Create Task</button></div>' +
+  '</div>' +
+  (nonEmpty.length ? nonEmpty.map(b =>
+    '<div class="card" style="margin-bottom:14px"><div class="card-head"><span class="card-title">'+b.label+'</span><span class="sub">'+b.list.length+' task'+(b.list.length===1?'':'s')+(b.draggable?' · drag '+icon('menu',10)+' to reorder':'')+'</span></div><div class="card-pad" style="padding-top:2px">' +
+      b.list.map(t => myDayRow(t, b.draggable)).join('') +
+    '</div></div>'
+  ).join('') : '<div class="card card-pad"><div class="empty-state">Nothing on your plate today. Enjoy the calm! 🎉</div></div>');
+}
 function priorityRow(t){
   const emp = DB.employees.find(e=>e.id===t.assignedTo);
   return '<div class="flex gap-10" style="padding:7px 0;border-bottom:1px solid var(--border);cursor:pointer" onclick="openTaskDetail(\''+t.id+'\')">' +
     (emp?avatar(emp,24):'<span class="avatar" style="width:24px;height:24px;background:var(--neutral-status)">—</span>') +
     '<div style="flex:1;min-width:0"><div style="font-weight:700;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+t.name+'</div><div class="sub">'+(emp?emp.name:'Unassigned')+' · '+t.project+'</div></div>' +
-    priorityPill(t.priority) +
+    urgentBadge(t) + priorityPill(t.priority) +
     '<span class="sub" style="width:80px;text-align:right">'+daysRemainingLabel(t)+'</span>' +
   '</div>';
 }
@@ -1995,7 +2100,7 @@ function viewDashboardMember(u){
 /* =====================================================================
    12. TASK LIST — shared by My Tasks / All Tasks
    ===================================================================== */
-const QUICK_FILTERS = ['All','Today','This Week','Overdue','High Priority','Critical','Completed'];
+const QUICK_FILTERS = ['All','Today','This Week','Overdue','Urgent','High Priority','Critical','Completed'];
 const PRIORITY_RANK = {Critical:0, High:1, Medium:2, Low:3};
 const STATUS_RANK = {'Not Started':0,'In Progress':1,'On Hold':2,'Completed':3,'Cancelled':4};
 
@@ -2019,6 +2124,7 @@ function filterTasks(base, scope){
   else if (f.quick === 'Overdue') list = list.filter(isOverdue);
   else if (f.quick === 'High Priority') list = list.filter(t => t.priority==='High');
   else if (f.quick === 'Critical') list = list.filter(t => t.priority==='Critical');
+  else if (f.quick === 'Urgent') list = list.filter(t => t.isUrgent);
   else if (f.quick === 'Completed') list = list.filter(t => t.status==='Completed');
   if (f.status !== 'All') list = list.filter(t => t.status===f.status);
   if (f.dept !== 'All') list = list.filter(t => t.department===f.dept);
@@ -2144,7 +2250,7 @@ function kanbanView(filtered){
       items.map(t => {
         const emp = DB.employees.find(e=>e.id===t.assignedTo);
         return '<div class="kanban-card" draggable="true" ondragstart="kanbanDragStart(event,\''+t.id+'\')" onclick="openTaskDetail(\''+t.id+'\')">' +
-          '<div class="kanban-card-name">'+escHtml(t.name)+'</div>' +
+          '<div class="kanban-card-name">'+(t.isUrgent?'🔴 ':'')+escHtml(t.name)+'</div>' +
           '<div class="flex-between" style="margin-bottom:6px">'+priorityPill(t.priority)+(emp?avatar(emp,20):'')+'</div>' +
           '<div class="sub">'+t.project+' · '+fmtDateShort(t.dueDate)+'</div>' +
         '</div>';
@@ -2194,6 +2300,7 @@ function viewTaskList(opts){
       kpiTile('Completed', cs.completed, Math.round(cs.completionRate)+'% completion', 'good') +
       kpiTile('In Progress', cs.inProgress) +
       kpiTile('Overdue', cs.overdue, cs.overdue>0?'needs attention':'on track', cs.overdue>0?'bad':'') +
+      kpiTile('Urgent Tasks', cs.urgent, cs.urgent>0?'needs attention':'none right now', cs.urgent>0?'bad':'', null, 'goToUrgentFilter()') +
     '</div>' +
     '<div class="grid grid-3" style="margin-bottom:16px">' +
       '<div class="card"><div class="card-head"><span class="card-title">Task Status</span></div><div class="card-pad">' + taskStatusDonut(cs, 120) + '</div></div>' +
@@ -2224,10 +2331,10 @@ function taskRow(t, scope){
   const emp = DB.employees.find(e=>e.id===t.assignedTo);
   const overdue = isOverdue(t);
   return '<tr class="row">' +
-    '<td class="task-name-cell" onclick="openTaskDetail(\''+t.id+'\')">'+t.name+'<div class="sub mono">'+t.id+'</div></td>' +
+    '<td class="task-name-cell" onclick="openTaskDetail(\''+t.id+'\')">'+(t.isUrgent?'🔴 ':'')+t.name+'<div class="sub mono">'+t.id+'</div></td>' +
     (scope==='all' ? '<td>'+(emp?('<span class="flex gap-6">'+avatar(emp,20)+emp.name+'</span>'):'<span class="muted">Unassigned</span>')+'</td>' : '') +
     '<td>'+t.project+'</td>' +
-    '<td>'+priorityPill(t.priority)+'</td>' +
+    '<td><div class="flex gap-6" style="flex-wrap:wrap">'+urgentBadge(t)+priorityPill(t.priority)+'</div></td>' +
     '<td>'+levelBars(t.level)+'</td>' +
     '<td class="num">'+fmtDateShort(t.dueDate)+'</td>' +
     '<td>'+statusPill(t)+'</td>' +
@@ -2614,10 +2721,12 @@ function clearTaskDraft(){ try { localStorage.removeItem(TASK_DRAFT_KEY); } catc
 function captureTaskDraftIfOpen(){
   if (!state.modal || state.modal.type !== 'taskForm' || state.modal.taskId) return; // only for new-task creation, not edits
   const val = id => { const el = document.getElementById(id); return el ? el.value : ''; };
+  const checked = id => { const el = document.getElementById(id); return el ? (el.checked ? '1' : '0') : '0'; };
   const draft = {
     name: val('tf-name'), desc: val('tf-desc'), assignee: val('tf-assignee'), dept: val('tf-dept'),
     project: val('tf-project'), projectOther: val('tf-project-other'), start: val('tf-start'), due: val('tf-due'),
-    priority: val('tf-priority'), level: val('tf-level'), status: val('tf-status'), recurrence: val('tf-recurrence')
+    priority: val('tf-priority'), level: val('tf-level'), status: val('tf-status'), recurrence: val('tf-recurrence'),
+    urgent: checked('tf-urgent'), urgentReason: val('tf-urgent-reason'), scheduleType: val('tf-scheduletype')
   };
   try {
     if (draft.name.trim() || draft.desc.trim()) localStorage.setItem(TASK_DRAFT_KEY, JSON.stringify(draft));
@@ -2660,6 +2769,13 @@ function renderTaskFormModal(taskId){
         '<div class="field-group"><label>Task Level</label><select id="tf-level">'+[1,2,3,4].map(l=>'<option value="'+l+'" '+((t?t.level:(d&&d.level?Number(d.level):2))===l?'selected':'')+'>Level '+l+' — '+LEVELS[l].label+'</option>').join('')+'</select></div>' +
       '</div>' +
       '<div class="field-row">' +
+        '<div class="field-group"><label>Urgent Work</label><label class="flex gap-6" style="font-size:12.5px;font-weight:600;cursor:pointer;padding:9px 0"><input type="checkbox" id="tf-urgent" '+((t?t.isUrgent:(d&&d.urgent==='1'))?'checked':'')+' onchange="document.getElementById(\'tf-urgent-reason-row\').style.display=(this.checked?\'\':\'none\')" /> Mark as Urgent Work</label></div>' +
+        '<div class="field-group"><label>Schedule Type</label><select id="tf-scheduletype"><option value="flexible" '+((t?t.scheduleType:(d&&d.scheduleType))!=='fixed'?'selected':'')+'>Flexible</option><option value="fixed" '+((t?t.scheduleType:(d&&d.scheduleType))==='fixed'?'selected':'')+'>Fixed (e.g. meeting)</option></select></div>' +
+      '</div>' +
+      '<div class="field-row single" id="tf-urgent-reason-row" style="display:'+((t?t.isUrgent:(d&&d.urgent==='1'))?'':'none')+'">' +
+        '<div class="field-group"><label>Reason for Urgency</label><input id="tf-urgent-reason" class="field" placeholder="e.g. Client presentation required before 2 PM" value="'+escAttr(t?t.urgencyReason:(d&&d.urgentReason?d.urgentReason:''))+'" /></div>' +
+      '</div>' +
+      '<div class="field-row">' +
         '<div class="field-group"><label>Repeat</label><select id="tf-recurrence">'+RECURRENCE_OPTIONS.map(o=>'<option value="'+o.value+'" '+((t?(t.recurrence||''):(d&&d.recurrence?d.recurrence:''))===o.value?'selected':'')+'>'+o.label+'</option>').join('')+'</select></div>' +
         '<div class="field-group"><label>Status</label><select id="tf-status">'+(isAdmin()?STATUSES:MEMBER_STATUSES).map(s=>'<option '+((t?t.status:(d&&d.status?d.status:'Not Started'))===s?'selected':'')+'>'+s+'</option>').join('')+'</select></div>' +
       '</div>' +
@@ -2690,23 +2806,40 @@ async function saveTaskForm(id){
   const status = document.getElementById('tf-status').value;
   const recurrence = document.getElementById('tf-recurrence').value || null;
   const desc = document.getElementById('tf-desc').value.trim();
+  const isUrgent = document.getElementById('tf-urgent').checked;
+  const urgencyReason = document.getElementById('tf-urgent-reason').value.trim();
+  const scheduleType = document.getElementById('tf-scheduletype').value;
   if (!start || !due){ showToast('Start and due dates are required'); return; }
   if (due < start){ showToast('Due date cannot be before the start date'); return; }
+  if (isUrgent && !urgencyReason){
+    // Avoid a full re-render here (showToast would rebuild this form from
+    // the unsaved task/draft and discard whatever else the user typed) —
+    // just flag the field directly instead.
+    const reasonEl = document.getElementById('tf-urgent-reason');
+    reasonEl.style.borderColor = 'var(--bad)';
+    reasonEl.placeholder = 'Required — say why this is urgent';
+    reasonEl.focus();
+    return;
+  }
 
   if (id){
     const cur = DB.tasks.find(x => x.id===id);
     const wasCompleted = cur.status === 'Completed';
-    const patch = { name, description:desc, assignedTo:assignee, department:dept, project, startDate:start, dueDate:due, priority, level, status, recurrence };
+    const wasUrgent = cur.isUrgent;
+    const patch = { name, description:desc, assignedTo:assignee, department:dept, project, startDate:start, dueDate:due, priority, level, status, recurrence, isUrgent, urgencyReason, scheduleType };
     if (status === 'Completed' && cur.status !== 'Completed'){ patch.completionDate = new Date().toISOString(); patch.progress = 100; }
     else if (status !== 'Completed' && cur.status === 'Completed'){ patch.completionDate = null; patch.progress = 75; }
     DB.updateTask(id, patch);
+    if (isUrgent && !wasUrgent) DB.addComment(id, 'Marked as Urgent Work: ' + urgencyReason, currentUser().id, 'urgent');
     if (status === 'Completed' && !wasCompleted) spawnNextRecurrence(cur);
     showToast('Task updated');
   } else {
     try {
-      await DB.addTask({ name, description:desc, assignedTo:assignee, assignedBy:currentUser().id, department:dept, project,
+      const created = await DB.addTask({ name, description:desc, assignedTo:assignee, assignedBy:currentUser().id, department:dept, project,
         createdDate:todayISO(), startDate:start, dueDate:due, priority, level, status, estimatedHours:null, actualHours:null,
-        progress: status==='Completed'?100:0, completionDate: status==='Completed'?new Date().toISOString():null, completionNotes:'', recurrence });
+        progress: status==='Completed'?100:0, completionDate: status==='Completed'?new Date().toISOString():null, completionNotes:'', recurrence,
+        isUrgent, urgencyReason, scheduleType });
+      if (isUrgent) DB.addComment(created.id, 'Marked as Urgent Work: ' + urgencyReason, currentUser().id, 'urgent');
       showToast('Task created');
       clearTaskDraft();
     } catch(e){ showToast('Could not save the task — check your connection and try again'); return; }
@@ -2797,7 +2930,7 @@ function addTaskComment(id){
 function detailField(label, value){ return '<div class="flex-between" style="font-size:12.5px;padding:3px 0"><span class="muted">'+label+'</span><span style="font-weight:600;text-align:right">'+value+'</span></div>'; }
 function commentBlock(c){
   const author = DB.employees.find(e => e.id===c.authorId);
-  const typeLabel = c.type==='completion' ? ' · Completion note' : c.type==='approval' ? ' · Approval' : c.type==='request' ? ' · Resource Request' : '';
+  const typeLabel = c.type==='completion' ? ' · Completion note' : c.type==='approval' ? ' · Approval' : c.type==='request' ? ' · Resource Request' : c.type==='urgent' ? ' · Urgent Work' : '';
   return '<div class="comment"><div class="meta">'+(author?author.name:'Unknown')+' · '+fmtDateTime(c.at)+typeLabel+'</div>'+escHtml(c.text)+'</div>';
 }
 function completionPromptBlock(t){
@@ -2836,7 +2969,7 @@ function renderTaskDetailModal(taskId){
     '<div class="modal-body">' +
       '<div class="stack" style="gap:20px">' +
         '<div class="stack">' +
-          '<div class="flex gap-8" style="flex-wrap:wrap">'+priorityPill(t.priority)+levelBars(t.level)+statusPill(t)+'</div>' +
+          '<div class="flex gap-8" style="flex-wrap:wrap">'+urgentBadge(t)+priorityPill(t.priority)+levelBars(t.level)+statusPill(t)+fixedBadge(t)+'</div>' +
           '<div class="sub">'+escHtml(t.description||'No description provided.')+'</div>' +
           (originTask ? '<div class="card" style="background:var(--accent-soft);padding:8px 10px;font-size:12.5px"><span class="muted">Requested for</span> <span style="font-weight:700;cursor:pointer;color:var(--accent-strong)" onclick="openTaskDetail(\''+originTask.id+'\')">'+escHtml(originTask.name)+' ('+originTask.id+')</span></div>' : (t.linkedTaskId ? '<div class="card" style="background:var(--accent-soft);padding:8px 10px;font-size:12.5px"><span class="muted">Requested for task '+t.linkedTaskId+'</span></div>' : '')) +
           '<div class="divider"></div>' +
