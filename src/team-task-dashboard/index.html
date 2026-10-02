@@ -901,7 +901,8 @@ function icon(name, size){
     sparkle:'<path d="M8 2v3M8 11v3M2 8h3M11 8h3M4 4l2 2M10 10l2 2M4 12l2-2M10 6l2-2"/>',
     menu:'<line x1="2.5" y1="4.5" x2="13.5" y2="4.5"/><line x1="2.5" y1="8" x2="13.5" y2="8"/><line x1="2.5" y1="11.5" x2="13.5" y2="11.5"/>',
     sun:'<circle cx="8" cy="8" r="3"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.5 3.5l1.4 1.4M11.1 11.1l1.4 1.4M3.5 12.5l1.4-1.4M11.1 4.9l1.4-1.4"/>',
-    moon:'<path d="M13.5 9.6A5.8 5.8 0 0 1 6.4 2.5a5.8 5.8 0 1 0 7.1 7.1z"/>'
+    moon:'<path d="M13.5 9.6A5.8 5.8 0 0 1 6.4 2.5a5.8 5.8 0 1 0 7.1 7.1z"/>',
+    kebab:'<circle cx="8" cy="3.2" r="1.15" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r="1.15" fill="currentColor" stroke="none"/><circle cx="8" cy="12.8" r="1.15" fill="currentColor" stroke="none"/>'
   };
   return '<svg width="'+size+'" height="'+size+'" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">'+(paths[name]||'')+'</svg>';
 }
@@ -1047,6 +1048,41 @@ function goToStatusFilter(status){
   state.view = isAdmin() ? 'alltasks' : 'mytasks';
   state.taskFilters = { quick:'All', status:status, dept:'All', project:'All', employee:'All', priority:'All', level:'All' };
   render();
+}
+
+/* ---------- Task Overview line chart (real per-day Created/Completed/Overdue counts) ---------- */
+function taskOverviewChart(taskList, days){
+  days = days || 7;
+  const today = todayDate();
+  const labels = [], created = [], completed = [], overdueSeries = [];
+  for (let i=days-1;i>=0;i--){
+    const d = new Date(today); d.setDate(d.getDate()-i);
+    const iso = toISO(d);
+    labels.push(d.toLocaleDateString('en-US',{month:'short',day:'numeric'}));
+    created.push(taskList.filter(t=>t.createdDate===iso).length);
+    completed.push(taskList.filter(t=>t.completionDate && t.completionDate.slice(0,10)===iso).length);
+    overdueSeries.push(taskList.filter(t=>t.status!=='Cancelled' && t.dueDate<iso && (!t.completionDate || t.completionDate.slice(0,10)>iso)).length);
+  }
+  const max = Math.max(2, ...created, ...completed, ...overdueSeries);
+  const w = 560, h = 170, padL = 22, padB = 18, padT = 8, padR = 8;
+  const plotW = w-padL-padR, plotH = h-padT-padB;
+  function seriesPath(series, color){
+    const pts = series.map((v,i) => [padL + (days===1?0:(i/(days-1))*plotW), padT + plotH - (v/max)*plotH]);
+    const line = pts.map((p,i)=> (i===0?'M':'L')+p[0].toFixed(1)+','+p[1].toFixed(1)).join(' ');
+    const area = line + ' L'+pts[pts.length-1][0].toFixed(1)+','+(padT+plotH)+' L'+pts[0][0].toFixed(1)+','+(padT+plotH)+' Z';
+    return '<path d="'+area+'" fill="'+color+'" opacity="0.07"></path><path d="'+line+'" fill="none" stroke="'+color+'" stroke-width="2"/>' +
+      pts.map(p=>'<circle cx="'+p[0].toFixed(1)+'" cy="'+p[1].toFixed(1)+'" r="2.5" fill="'+color+'"/>').join('');
+  }
+  const gridLines = [0,0.33,0.66,1].map(f => '<line x1="'+padL+'" y1="'+(padT+plotH*f).toFixed(1)+'" x2="'+(w-padR)+'" y2="'+(padT+plotH*f).toFixed(1)+'" stroke="var(--border)" stroke-width="1"/>').join('');
+  return '<div class="flex gap-14" style="font-size:11px;color:var(--ink-faint);font-weight:700;margin-bottom:6px;flex-wrap:wrap">' +
+      '<span class="flex gap-6"><span class="legend-dot" style="background:var(--good)"></span>Completed</span>' +
+      '<span class="flex gap-6"><span class="legend-dot" style="background:var(--bad)"></span>Overdue</span>' +
+      '<span class="flex gap-6"><span class="legend-dot" style="background:var(--ink-faint)"></span>Created</span>' +
+    '</div>' +
+    '<svg viewBox="0 0 '+w+' '+h+'" style="width:100%;height:auto;display:block">' + gridLines +
+      seriesPath(created, 'var(--ink-faint)') + seriesPath(overdueSeries, 'var(--bad)') + seriesPath(completed, 'var(--good)') +
+    '</svg>' +
+    '<div class="flex" style="justify-content:space-between;font-size:10px;color:var(--ink-faint);margin-top:2px">' + labels.map(l=>'<span>'+l+'</span>').join('') + '</div>';
 }
 
 /* ---------- Tasks by Project bars ---------- */
@@ -1212,6 +1248,10 @@ const state = {
   settingsDraft: { newDept:'', newProject:'' },
   teamTasksTab: 'overview',
   myTasksShowCompleted: false,
+  dashboardTab: 'all',
+  dashboardFilters: { project:'All', status:'All' },
+  dashboardSelected: [],
+  dashboardMenuOpenId: null,
   toast: null
 };
 applyTheme(state.theme);
@@ -1770,94 +1810,146 @@ function greeting(){
   const h = new Date().getHours();
   return h < 12 ? 'Good Morning' : h < 17 ? 'Good Afternoon' : 'Good Evening';
 }
+
+/* ---------- Admin Dashboard — Recent Tasks mini-table (tabs/filters/bulk actions) ---------- */
+function setDashboardTab(tab){ state.dashboardTab = tab; state.dashboardSelected = []; render(); }
+function setDashboardFilter(key, v){ state.dashboardFilters[key] = v; render(); }
+function toggleDashboardRowSelect(id){
+  const i = state.dashboardSelected.indexOf(id);
+  if (i>-1) state.dashboardSelected.splice(i,1); else state.dashboardSelected.push(id);
+  render();
+}
+function toggleDashboardSelectAll(ids){
+  const allSelected = ids.length>0 && ids.every(id=>state.dashboardSelected.includes(id));
+  state.dashboardSelected = allSelected ? [] : ids.slice();
+  render();
+}
+function toggleDashboardRowMenu(id){ state.dashboardMenuOpenId = state.dashboardMenuOpenId===id ? null : id; render(); }
+function bulkDeleteDashboardSelected(){
+  const n = state.dashboardSelected.length;
+  state.dashboardSelected.forEach(id => DB.deleteTask(id));
+  state.dashboardSelected = [];
+  showToast(n + ' task' + (n===1?'':'s') + ' deleted');
+  render();
+}
+function dashboardTaskRow(t){
+  const emp = DB.employees.find(e=>e.id===t.assignedTo);
+  const checked = state.dashboardSelected.includes(t.id);
+  const menuOpen = state.dashboardMenuOpenId === t.id;
+  return '<tr class="row">' +
+    '<td style="width:28px"><input type="checkbox" '+(checked?'checked':'')+' onchange="toggleDashboardRowSelect(\''+t.id+'\')" /></td>' +
+    '<td class="task-name-cell" onclick="openTaskDetail(\''+t.id+'\')">'+(t.isUrgent?'🔴 ':'')+escHtml(t.name)+'</td>' +
+    '<td>'+escHtml(t.project)+'</td>' +
+    '<td>'+(emp?('<span class="flex gap-6">'+avatar(emp,20)+emp.name+'</span>'):'<span class="muted">Unassigned</span>')+'</td>' +
+    '<td>'+priorityPill(t.priority)+'</td>' +
+    '<td class="num">'+fmtDateShort(t.dueDate)+'</td>' +
+    '<td>'+statusPill(t)+'</td>' +
+    '<td style="position:relative;width:36px">' +
+      '<button class="icon-btn" style="width:28px;height:28px" onclick="event.stopPropagation();toggleDashboardRowMenu(\''+t.id+'\')">'+icon('kebab',13)+'</button>' +
+      (menuOpen ? ('<div class="notif-panel" style="width:140px;right:0;top:32px">' +
+        '<div class="profile-menu-item" onclick="toggleDashboardRowMenu(\''+t.id+'\');openTaskDetail(\''+t.id+'\')">'+icon('edit',12)+' Open</div>' +
+        (isAdmin() ? ('<div class="profile-menu-item" style="color:var(--bad)" onclick="toggleDashboardRowMenu(\''+t.id+'\');DB.deleteTask(\''+t.id+'\');showToast(\'Task deleted\')">'+icon('trash',12)+' Delete</div>') : '') +
+      '</div>') : '') +
+    '</td>' +
+  '</tr>';
+}
+function dashboardRecentTasksCard(){
+  const u = currentUser();
+  const all = visibleTasks().filter(t => t.status!=='Cancelled');
+  const tabsDef = [
+    {key:'all', label:'All Tasks', list: all},
+    {key:'my', label:'My Tasks', list: all.filter(t=>t.assignedTo===u.id)},
+    {key:'team', label:'Team Tasks', list: all.filter(t=>t.assignedTo!==u.id)}
+  ];
+  const activeTab = tabsDef.find(t=>t.key===state.dashboardTab) || tabsDef[0];
+  const f = state.dashboardFilters;
+  let list = activeTab.list.slice();
+  if (f.project !== 'All') list = list.filter(t=>t.project===f.project);
+  if (f.status !== 'All') list = list.filter(t=>t.status===f.status);
+  list.sort((a,b) => a.dueDate<b.dueDate?-1:1);
+  const shown = list.slice(0,8);
+  const ids = shown.map(t=>t.id);
+  const allChecked = ids.length>0 && ids.every(id=>state.dashboardSelected.includes(id));
+
+  return '<div class="card">' +
+    '<div class="card-head" style="flex-wrap:wrap;gap:10px">' +
+      '<span class="card-title">Recent Tasks</span>' +
+      '<div class="flex gap-8">' +
+        '<select class="field" style="padding:6px 10px;font-size:12px" onchange="setDashboardFilter(\'project\', this.value)">' +
+          ['All'].concat(DB.projects).map(p=>'<option value="'+escAttr(p)+'" '+(f.project===p?'selected':'')+'>'+(p==='All'?'All Projects':DB.projectMascot(p)+' '+p)+'</option>').join('') +
+        '</select>' +
+        '<select class="field" style="padding:6px 10px;font-size:12px" onchange="setDashboardFilter(\'status\', this.value)">' +
+          ['All'].concat(STATUSES.filter(s=>s!=='Cancelled')).map(s=>'<option '+(f.status===s?'selected':'')+'>'+(s==='All'?'All Status':s)+'</option>').join('') +
+        '</select>' +
+      '</div>' +
+    '</div>' +
+    '<div class="flex gap-6" style="padding:0 18px 12px;flex-wrap:wrap">' +
+      tabsDef.map(t => '<span class="chip-filter '+(activeTab.key===t.key?'active':'')+'" onclick="setDashboardTab(\''+t.key+'\')">'+t.label+' ('+t.list.length+')</span>').join('') +
+    '</div>' +
+    '<div class="table-wrap"><table><thead><tr>' +
+      '<th style="width:28px"><input type="checkbox" '+(allChecked?'checked':'')+' onchange=\'toggleDashboardSelectAll('+JSON.stringify(ids)+')\' /></th>' +
+      '<th>Task Name</th><th>Project</th><th>Assigned To</th><th>Priority</th><th>Due Date</th><th>Status</th><th></th>' +
+    '</tr></thead><tbody>' +
+      (shown.length ? shown.map(t => dashboardTaskRow(t)).join('') : '') +
+    '</tbody></table></div>' +
+    (shown.length ? '' : '<div class="empty-state">No tasks match the current filters.</div>') +
+    (state.dashboardSelected.length ? '<div class="card-pad" style="padding-top:0"><button class="btn btn-sm btn-danger" onclick="bulkDeleteDashboardSelected()">'+icon('trash',12)+' Delete '+state.dashboardSelected.length+' Selected</button></div>' : '') +
+    '<div style="padding:4px 18px 16px"><button class="btn btn-sm btn-ghost" onclick="setView(\'alltasks\')">View All →</button></div>' +
+  '</div>';
+}
+function todaysScheduleCard(taskList){
+  const today = taskList.filter(t => t.status!=='Completed' && t.status!=='Cancelled' && t.dueDate===todayISO())
+    .sort((a,b) => PRIORITY_RANK[a.priority]-PRIORITY_RANK[b.priority]);
+  return '<div class="card"><div class="card-head"><span class="card-title">Today\'s Schedule</span><button class="btn btn-sm btn-ghost" onclick="setView(\'calendar\')">View Calendar</button></div><div class="card-pad">' +
+    (today.length ? today.map(t=>priorityRow(t)).join('') : '<div class="empty-state">Nothing due today.</div>') +
+  '</div></div>';
+}
 function viewDashboardAdmin(){
   const cs = companyStats(visibleTasks());
-  const alerts = computeAlerts(visibleTasks());
-  const members = visibleEmployees().filter(e => e.active && e.id !== currentUser().id);
   const now = todayDate();
-  const lb = leaderboard(now.getFullYear(), now.getMonth());
-  const best = lb[0], needsAttention = lb.slice().sort((a,b)=>a.stats.efficiency-b.stats.efficiency)[0];
-  const highestOverdue = lb.slice().sort((a,b)=>b.stats.overdue-a.stats.overdue)[0];
-  const highestCompletion = lb.slice().sort((a,b)=>b.stats.completionRate-a.stats.completionRate)[0];
-  const highestOnTime = lb.slice().sort((a,b)=>b.stats.onTimeRate-a.stats.onTimeRate)[0];
-
-  const workload = members.map(e => ({ emp:e, count: DB.tasks.filter(t=>t.assignedTo===e.id && t.status!=='Completed' && t.status!=='Cancelled').length }));
-  const maxLoad = Math.max(1, ...workload.map(w=>w.count));
-
-  const priorities = visibleTasks().filter(t => t.status!=='Completed' && t.status!=='Cancelled' && (t.dueDate===todayISO() || t.priority==='Critical') && !isOverdue(t))
-    .concat(alerts.overdue).filter((t,i,arr)=>arr.indexOf(t)===i)
-    .sort((a,b)=> a.dueDate<b.dueDate?-1:1).slice(0,8);
 
   const upcoming = visibleTasks().filter(t => t.status!=='Completed' && t.status!=='Cancelled' && t.dueDate>=todayISO() && t.dueDate<=addDaysISO(todayISO(),7))
-    .sort((a,b)=> a.dueDate<b.dueDate?-1:1).slice(0,8);
+    .sort((a,b)=> a.dueDate<b.dueDate?-1:1).slice(0,6);
 
   const trends = weeklyTrends(visibleTasks());
+  const weekday = new Date().toLocaleDateString('en-US',{weekday:'long'});
 
   return '' +
-  '<div class="page-head"><div><div class="page-title">'+greeting()+', '+currentUser().name.split(' ')[0]+'! 👋</div><div class="page-sub">Here\'s what\'s happening with your team today · '+fmtDate(todayISO())+'</div></div>' +
-    '<div class="page-actions"><button class="btn btn-primary" onclick="openCreateTask()">'+icon('plus',14)+' Create Task</button></div>' +
+  '<div class="page-head"><div><div class="page-title">'+greeting()+', '+currentUser().name.split(' ')[0]+'!</div><div class="page-sub">Here\'s what\'s happening with your team today.</div></div>' +
+    '<div class="flex gap-10" style="align-items:center;flex-wrap:wrap">' +
+      '<div class="flex gap-8" style="align-items:center;background:var(--surface-solid);border:1px solid var(--border);border-radius:10px;padding:8px 14px">' +
+        icon('calendar',15) +
+        '<div><div style="font-weight:700;font-size:12.5px">'+weekday+'</div><div class="sub" style="margin-top:0">'+fmtDate(todayISO())+'</div></div>' +
+      '</div>' +
+      '<button class="btn btn-primary" onclick="openCreateTask()">'+icon('plus',14)+' Create Task</button>' +
+    '</div>' +
   '</div>' +
-
-  (alerts.dueToday.length+alerts.overdue.length+alerts.dueTomorrow.length+alerts.dueSoon.length+alerts.critical.length+alerts.unassigned.length+alerts.pendingApproval.length > 0 ?
-  '<div class="card card-pad" style="margin-bottom:16px"><div class="card-title-sm" style="margin-bottom:8px">Smart Alerts</div><div class="flex gap-8" style="flex-wrap:wrap">' +
-    (alerts.overdue.length? '<span class="chip-filter" style="color:var(--bad);border-color:var(--bad-soft);background:var(--bad-soft)" onclick="goToAlert(\'overdue\')">'+alerts.overdue.length+' task'+(alerts.overdue.length===1?'':'s')+' overdue</span>':'') +
-    (alerts.pendingApproval.length? '<span class="chip-filter" style="color:var(--gold);border-color:var(--gold-soft);background:var(--gold-soft)" onclick="goToAlert(\'pendingApproval\')">'+alerts.pendingApproval.length+' awaiting your approval</span>':'') +
-    (alerts.dueToday.length? '<span class="chip-filter" style="color:var(--warn);border-color:var(--warn-soft);background:var(--warn-soft)" onclick="goToAlert(\'today\')">'+alerts.dueToday.length+' due today</span>':'') +
-    (alerts.dueTomorrow.length? '<span class="chip-filter" onclick="goToAlert(\'tomorrow\')">'+alerts.dueTomorrow.length+' due tomorrow</span>':'') +
-    (alerts.dueSoon.length? '<span class="chip-filter" onclick="goToAlert(\'soon\')">'+alerts.dueSoon.length+' due in the next few days</span>':'') +
-    (alerts.critical.length? '<span class="chip-filter" style="color:var(--bad);border-color:var(--bad-soft);background:var(--bad-soft)" onclick="goToAlert(\'critical\')">'+alerts.critical.length+' critical task'+(alerts.critical.length===1?'':'s')+' need attention</span>':'') +
-    (alerts.unassigned.length? '<span class="chip-filter" onclick="goToAlert(\'unassigned\')">'+alerts.unassigned.length+' unassigned</span>':'') +
-  '</div></div>' : '') +
-
-  (alerts.pendingApproval.length ?
-  '<div class="card" style="margin-bottom:16px;border-color:var(--gold)"><div class="card-head"><span class="card-title" style="color:var(--gold)">Pending Approvals</span><span class="sub">'+alerts.pendingApproval.length+' waiting on you</span></div><div class="card-pad">' +
-    alerts.pendingApproval.map(t => pendingApprovalRow(t)).join('') +
-  '</div></div>' : '') +
 
   '<div class="grid grid-kpi" style="margin-bottom:16px">' +
     kpiTile('Total Tasks', cs.total, trends.createdThis+' created this week', '', trends.createdTrend) +
     kpiTile('Completed', cs.completed, Math.round(cs.completionRate)+'% completion', 'good', trends.completedTrend) +
     kpiTile('In Progress', cs.inProgress) +
     kpiTile('Overdue', cs.overdue, cs.overdue>0?'needs attention':'on track', cs.overdue>0?'bad':'') +
-    kpiTile('Urgent Tasks', cs.urgent, cs.urgent>0?'needs attention':'none right now', cs.urgent>0?'bad':'', null, 'goToUrgentFilter()') +
-    kpiTile('Efficiency', Math.round(cs.teamEfficiency), 'On-time '+Math.round(cs.onTimeRate)+'% · Avg '+cs.avgCompletionDays.toFixed(1)+'d') +
   '</div>' +
 
-  '<div class="grid grid-2" style="margin-bottom:16px">' +
-    '<div class="card"><div class="card-head"><span class="card-title">Task Status</span><span class="sub">all active + recent work</span></div><div class="card-pad">' + taskStatusDonut(cs) + '</div></div>' +
-    '<div class="card"><div class="card-head"><span class="card-title">Tasks by Project</span><span class="sub">click to filter</span></div><div class="card-pad">' + tasksByProjectBars(visibleTasks()) + '</div></div>' +
-  '</div>' +
-
-  '<div class="grid grid-2" style="margin-bottom:16px">' +
-    '<div class="card"><div class="card-head"><span class="card-title">Today\'s Priorities</span><span class="sub">'+priorities.length+' items</span></div><div class="card-pad">' +
-      (priorities.length ? priorities.map(t => priorityRow(t)).join('') : '<div class="empty-state">Nothing urgent today.</div>') +
-    '</div></div>' +
-    '<div class="card"><div class="card-head"><span class="card-title">Team Workload</span><span class="sub">active tasks</span></div><div class="card-pad">' +
-      workload.map(w => '<div class="bar-row"><span style="width:88px;flex:0 0 auto;font-size:12px;font-weight:600" class="ellipsis">'+w.emp.name.split(' ')[0]+'</span>' +
-        '<span class="bar-track"><span class="bar-fill" style="width:'+(w.count/maxLoad*100)+'%"></span></span>' +
-        '<span style="width:18px;text-align:right;font-weight:800;font-size:12px" class="num">'+w.count+'</span></div>').join('') +
-      '<div class="sub" style="margin-top:8px">Flags employees carrying disproportionately more or fewer active tasks than the team average.</div>' +
-    '</div></div>' +
-  '</div>' +
-
-  '<div class="card-head" style="padding:0;margin-bottom:10px"><span class="card-title" style="font-size:15px">Employee Performance</span><span class="sub">This month · click a card for details · includes your own tasks</span></div>' +
-  '<div class="grid grid-emp" style="margin-bottom:16px">' + employeeCard(currentUser()) + members.map(e => employeeCard(e)).join('') + '</div>' +
-
-  '<div class="grid grid-2" style="margin-bottom:16px">' +
-    '<div class="card"><div class="card-head"><span class="card-title">Upcoming Deadlines</span><span class="sub">next 7 days</span></div><div class="card-pad">' +
-      (upcoming.length ? upcoming.map(t => priorityRow(t)).join('') : '<div class="empty-state">No deadlines in the next 7 days.</div>') +
-    '</div></div>' +
-    '<div class="card"><div class="card-head"><span class="card-title">Performance Highlights</span></div><div class="card-pad stack">' +
-      highlightRow('Best Performing', best) + highlightRow('Needs Attention', needsAttention, true) +
-      highlightRow('Highest Overdue Count', highestOverdue, true, 'overdue') +
-      highlightRow('Highest Completion Rate', highestCompletion, false, 'completionRate') +
-      highlightRow('Highest On-Time Rate', highestOnTime, false, 'onTimeRate') +
-    '</div></div>' +
-  '</div>' +
-
-  '<div class="card"><div class="card-head"><span class="card-title">Monthly Performance — '+monthLabel(now.getFullYear(),now.getMonth())+'</span><button class="btn btn-sm btn-ghost" onclick="setView(\'reports\')">Full report →</button></div><div class="card-pad">' +
-    monthlyPreviewTable(lb.slice(0,5)) +
-  '</div></div>';
+  '<div class="grid grid-2" style="margin-bottom:16px;align-items:start">' +
+    '<div class="stack" style="gap:16px">' +
+      '<div class="grid grid-2" style="gap:16px">' +
+        '<div class="card"><div class="card-head"><span class="card-title">Task Overview</span></div><div class="card-pad">' + taskOverviewChart(visibleTasks()) + '</div></div>' +
+        '<div class="card"><div class="card-head"><span class="card-title">Tasks by Status</span></div><div class="card-pad">' + taskStatusDonut(cs, 130) + '</div></div>' +
+      '</div>' +
+      dashboardRecentTasksCard() +
+    '</div>' +
+    '<div class="stack" style="gap:16px">' +
+      todaysScheduleCard(visibleTasks()) +
+      '<div class="card"><div class="card-head"><span class="card-title">Upcoming Deadlines</span><button class="btn btn-sm btn-ghost" onclick="goToAlert(\'soon\')">View All</button></div><div class="card-pad">' +
+        (upcoming.length ? upcoming.map(t => priorityRow(t)).join('') : '<div class="empty-state">No deadlines in the next 7 days.</div>') +
+      '</div></div>' +
+      '<div class="card"><div class="card-head"><span class="card-title">Recent Activity</span></div><div class="card-pad">' +
+        recentActivityFeed(visibleTasks(), 6) +
+      '</div></div>' +
+    '</div>' +
+  '</div>';
 }
 /* ---------- My Day — urgent-first smart ordering (sections 43/44) ---------- */
 function myDayBuckets(taskList){
@@ -1934,18 +2026,6 @@ function priorityRow(t){
     '<div style="flex:1;min-width:0"><div style="font-weight:700;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+t.name+'</div><div class="sub">'+(emp?emp.name:'Unassigned')+' · '+t.project+'</div></div>' +
     urgentBadge(t) + priorityPill(t.priority) +
     '<span class="sub" style="width:80px;text-align:right">'+daysRemainingLabel(t)+'</span>' +
-  '</div>';
-}
-function pendingApprovalRow(t){
-  const emp = DB.employees.find(e=>e.id===t.assignedTo);
-  return '<div class="flex gap-10" style="padding:9px 0;border-bottom:1px solid var(--border)">' +
-    (emp?avatar(emp,24):'<span class="avatar" style="width:24px;height:24px;background:var(--neutral-status)">—</span>') +
-    '<div style="flex:1;min-width:0;cursor:pointer" onclick="openTaskDetail(\''+t.id+'\')">' +
-      '<div style="font-weight:700;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+t.name+'</div>' +
-      '<div class="sub">'+(emp?emp.name:'—')+' · '+t.project+(t.completionDate?' · submitted '+fmtDateTime(t.completionDate):'')+'</div>' +
-    '</div>' +
-    '<button class="btn btn-sm btn-primary" onclick="approveTask(\''+t.id+'\')">'+icon('check',12)+' Approve</button>' +
-    '<button class="btn btn-sm btn-ghost" onclick="openTaskDetail(\''+t.id+'\')">Review</button>' +
   '</div>';
 }
 function highlightRow(label, entry, warnStyle, metric){
@@ -3083,6 +3163,10 @@ function viewReports(u){
   const selected = r.selectedEmp ? rows.find(x => x.employee.id===r.selectedEmp) : null;
   let mom = null;
   if (r.compareMode && r.selectedEmp != null) mom = momCompare(r.selectedEmp, r.cYear, r.cMonth, r.year, r.month);
+  const best = rows[0], needsAttention = rows.slice().sort((a,b)=>a.stats.efficiency-b.stats.efficiency)[0];
+  const highestOverdue = rows.slice().sort((a,b)=>b.stats.overdue-a.stats.overdue)[0];
+  const highestCompletion = rows.slice().sort((a,b)=>b.stats.completionRate-a.stats.completionRate)[0];
+  const highestOnTime = rows.slice().sort((a,b)=>b.stats.onTimeRate-a.stats.onTimeRate)[0];
 
   return '<div class="page-head"><div><div class="page-title">Reports</div><div class="page-sub">Monthly performance, efficiency scoring and team leaderboard</div></div></div>' +
     '<div class="filter-bar">' +
@@ -3101,14 +3185,29 @@ function viewReports(u){
 
     (selected ? employeeReportPanel(selected, r) : '') +
 
-    '<div class="card"><div class="card-head"><span class="card-title">Month-over-Month Comparison</span>' +
+    '<div class="card" style="margin-bottom:16px"><div class="card-head"><span class="card-title">Month-over-Month Comparison</span>' +
       '<label class="flex gap-6" style="font-size:12px;font-weight:700;cursor:pointer"><input type="checkbox" '+(r.compareMode?'checked':'')+' onchange="toggleCompareMode()" /> Enable</label>' +
     '</div><div class="card-pad">' +
       (!r.compareMode ? '<div class="sub">Select an employee from the leaderboard above, then enable comparison to see how their performance changed between two months.</div>' :
         (!r.selectedEmp ? '<div class="sub">Click an employee row in the leaderboard above to compare their performance.</div>' :
           momComparePanel(r.selectedEmp, mom))
       ) +
-    '</div></div>';
+    '</div></div>' +
+
+    '<div class="card-head" style="padding:0;margin-bottom:10px"><span class="card-title" style="font-size:15px">Employee Performance</span><span class="sub">This month · click a card for details · includes your own tasks</span></div>' +
+    '<div class="grid grid-emp" style="margin-bottom:16px">' + employeeCard(currentUser()) + visibleEmployees().filter(e => e.active && e.id !== currentUser().id).map(e => employeeCard(e)).join('') + '</div>' +
+
+    '<div class="grid grid-2" style="margin-bottom:16px">' +
+      '<div class="card"><div class="card-head"><span class="card-title">Performance Highlights</span></div><div class="card-pad stack">' +
+        highlightRow('Best Performing', best) + highlightRow('Needs Attention', needsAttention, true) +
+        highlightRow('Highest Overdue Count', highestOverdue, true, 'overdue') +
+        highlightRow('Highest Completion Rate', highestCompletion, false, 'completionRate') +
+        highlightRow('Highest On-Time Rate', highestOnTime, false, 'onTimeRate') +
+      '</div></div>' +
+      '<div class="card"><div class="card-head"><span class="card-title">Monthly Performance — '+monthLabel(r.year,r.month)+'</span></div><div class="card-pad">' +
+        monthlyPreviewTable(rows.slice(0,5)) +
+      '</div></div>' +
+    '</div>';
 }
 window.exportMonthlyCsv_ = function(el){
   const r = state.report;
