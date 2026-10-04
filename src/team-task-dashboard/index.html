@@ -195,6 +195,10 @@
   .donut-center .val span{font-size:10px; color:var(--ink-faint); font-weight:700; text-transform:uppercase; letter-spacing:.05em;}
   .donut-legend{display:flex; flex-direction:column; gap:7px; flex:1 1 auto; min-width:120px;}
   .donut-legend-row{display:flex; align-items:center; gap:7px; font-size:12.5px; font-weight:600; cursor:pointer;}
+  .donut-seg{cursor:pointer; transition:opacity .12s var(--ease);}
+  .donut-seg:hover{opacity:.78;}
+  .chart-point{cursor:pointer; transition:r .12s var(--ease);}
+  .chart-point:hover{r:4.5;}
   .legend-dot{width:9px; height:9px; border-radius:50%; flex:0 0 auto;}
   .proj-bar-row{padding:7px 0; cursor:pointer;}
   .proj-bar-head{display:flex; justify-content:space-between; font-size:12.5px; font-weight:600; margin-bottom:5px;}
@@ -1074,7 +1078,7 @@ function taskStatusDonut(cs, size){
   const arcs = total ? segs.map(s => {
     const frac = s.value/total;
     const dash = frac*c;
-    const el = '<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="none" stroke="'+s.color+'" stroke-width="16" stroke-dasharray="'+dash+' '+(c-dash)+'" stroke-dashoffset="'+(-offset)+'"/>';
+    const el = '<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="none" stroke="'+s.color+'" stroke-width="16" stroke-dasharray="'+dash+' '+(c-dash)+'" stroke-dashoffset="'+(-offset)+'" class="donut-seg"><title>'+s.label+': '+s.value+' ('+Math.round(frac*100)+'%)</title></circle>';
     offset += dash;
     return el;
   }).join('') : '<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="none" stroke="var(--border-strong)" stroke-width="16"/>';
@@ -1110,12 +1114,12 @@ function taskOverviewChart(taskList, days){
   const max = Math.max(2, ...created, ...completed, ...overdueSeries);
   const w = 560, h = 170, padL = 22, padB = 18, padT = 8, padR = 8;
   const plotW = w-padL-padR, plotH = h-padT-padB;
-  function seriesPath(series, color){
+  function seriesPath(series, color, seriesLabel){
     const pts = series.map((v,i) => [padL + (days===1?0:(i/(days-1))*plotW), padT + plotH - (v/max)*plotH]);
     const line = pts.map((p,i)=> (i===0?'M':'L')+p[0].toFixed(1)+','+p[1].toFixed(1)).join(' ');
     const area = line + ' L'+pts[pts.length-1][0].toFixed(1)+','+(padT+plotH)+' L'+pts[0][0].toFixed(1)+','+(padT+plotH)+' Z';
     return '<path d="'+area+'" fill="'+color+'" opacity="0.07"></path><path d="'+line+'" fill="none" stroke="'+color+'" stroke-width="2"/>' +
-      pts.map(p=>'<circle cx="'+p[0].toFixed(1)+'" cy="'+p[1].toFixed(1)+'" r="2.5" fill="'+color+'"/>').join('');
+      pts.map((p,i)=>'<circle class="chart-point" cx="'+p[0].toFixed(1)+'" cy="'+p[1].toFixed(1)+'" r="2.5" fill="'+color+'"><title>'+seriesLabel+' — '+labels[i]+': '+series[i]+'</title></circle>').join('');
   }
   const gridLines = [0,0.33,0.66,1].map(f => '<line x1="'+padL+'" y1="'+(padT+plotH*f).toFixed(1)+'" x2="'+(w-padR)+'" y2="'+(padT+plotH*f).toFixed(1)+'" stroke="var(--border)" stroke-width="1"/>').join('');
   return '<div class="flex gap-14" style="font-size:11px;color:var(--ink-faint);font-weight:700;margin-bottom:6px;flex-wrap:wrap">' +
@@ -1124,33 +1128,9 @@ function taskOverviewChart(taskList, days){
       '<span class="flex gap-6"><span class="legend-dot" style="background:var(--ink-faint)"></span>Created</span>' +
     '</div>' +
     '<svg viewBox="0 0 '+w+' '+h+'" style="width:100%;height:auto;display:block">' + gridLines +
-      seriesPath(created, 'var(--ink-faint)') + seriesPath(overdueSeries, 'var(--bad)') + seriesPath(completed, 'var(--good)') +
+      seriesPath(created, 'var(--ink-faint)', 'Created') + seriesPath(overdueSeries, 'var(--bad)', 'Overdue') + seriesPath(completed, 'var(--good)', 'Completed') +
     '</svg>' +
     '<div class="flex" style="justify-content:space-between;font-size:10px;color:var(--ink-faint);margin-top:2px">' + labels.map(l=>'<span>'+l+'</span>').join('') + '</div>';
-}
-
-/* ---------- Tasks by Project bars ---------- */
-function tasksByProjectBars(taskList){
-  const rows = DB.projects.map(p => {
-    const list = taskList.filter(t => t.project === p && t.status !== 'Cancelled');
-    const completed = list.filter(t => t.status === 'Completed').length;
-    return { name:p, count:list.length, completed };
-  }).filter(r => r.count > 0).sort((a,b) => b.count - a.count).slice(0,8);
-  lastProjectBarRows = rows;
-  if (!rows.length) return '<div class="empty-state">No project activity yet.</div>';
-  const max = Math.max(1, ...rows.map(r=>r.count));
-  return rows.map((r,i) => '<div class="proj-bar-row" onclick="goToProjectFilter('+i+')">' +
-    '<div class="proj-bar-head"><span>'+DB.projectMascot(r.name)+' '+escHtml(r.name)+'</span><span class="num" style="font-weight:800">'+r.count+'</span></div>' +
-    '<span class="bar-track"><span class="bar-fill" style="width:'+(r.count/max*100)+'%"></span></span>' +
-  '</div>').join('');
-}
-let lastProjectBarRows = [];
-function goToProjectFilter(i){
-  const row = lastProjectBarRows[i];
-  if (!row) return;
-  state.view = isAdmin() ? 'alltasks' : 'mytasks';
-  state.taskFilters = { quick:'All', status:'All', dept:'All', project:row.name, employee:'All', priority:'All', level:'All' };
-  render();
 }
 
 /* ---------- Team Workload mini bar chart (Assigned vs Completed per member) ---------- */
@@ -2278,10 +2258,10 @@ function viewDashboardMember(u){
       (todayTasks.length ? todayTasks.map(t=>priorityRow(t)).join('') : '<div class="empty-state">Nothing due today. Nice work staying ahead.</div>') +
     '</div></div>' +
     '<div class="stack" style="gap:16px">' +
-      '<div class="card card-pad">' + miniMonthCalendar(now.getFullYear(), now.getMonth(), myTasks) + '</div>' +
       '<div class="card"><div class="card-head"><span class="card-title">Upcoming</span><span class="sub">next 7 days</span></div><div class="card-pad">' +
         (upcoming.length ? upcoming.slice(0,4).map(t=>priorityRow(t)).join('') : '<div class="empty-state">No upcoming deadlines.</div>') +
       '</div></div>' +
+      '<div class="card card-pad">' + miniMonthCalendar(now.getFullYear(), now.getMonth(), myTasks) + '</div>' +
     '</div>' +
   '</div>' +
 
@@ -2291,16 +2271,9 @@ function viewDashboardMember(u){
     '<div class="card"><div class="card-head"><span class="card-title">Quick Actions</span></div><div class="card-pad">' + myQuickActions() + '</div></div>' +
   '</div>' +
 
-  '<div class="grid grid-2" style="margin-bottom:16px">' +
-    '<div class="card card-pad">' +
-      '<div class="flex gap-14" style="margin-bottom:6px">'+scoreRing(stats.efficiency,72)+'<div><div class="card-title">Your Efficiency Score</div><div class="sub">'+monthLabel(now.getFullYear(),now.getMonth())+' · transparent breakdown below</div></div></div>' +
-      efficiencyBreakdownCard(stats) +
-      '<button class="btn btn-sm" style="margin-top:8px" onclick="setView(\'reports\')">View full monthly report →</button>' +
-    '</div>' +
-    '<div class="card"><div class="card-head"><span class="card-title">Recent Activity</span><span class="sub">your tasks</span></div><div class="card-pad">' +
-      recentActivityFeed(myTasks, 6) +
-    '</div></div>' +
-  '</div>';
+  '<div class="card"><div class="card-head"><span class="card-title">Recent Activity</span><span class="sub">your tasks</span></div><div class="card-pad">' +
+    recentActivityFeed(myTasks, 6) +
+  '</div></div>';
 }
 
 /* =====================================================================
@@ -2533,9 +2506,8 @@ function viewTaskList(opts){
       kpiTile('Overdue', cs.overdue, cs.overdue>0?'needs attention':'on track', cs.overdue>0?'bad':'') +
       kpiTile('Urgent Tasks', cs.urgent, cs.urgent>0?'needs attention':'none right now', cs.urgent>0?'bad':'', null, 'goToUrgentFilter()') +
     '</div>' +
-    '<div class="grid grid-3" style="margin-bottom:16px">' +
+    '<div class="grid grid-2" style="margin-bottom:16px">' +
       '<div class="card"><div class="card-head"><span class="card-title">Task Status</span></div><div class="card-pad">' + taskStatusDonut(cs, 120) + '</div></div>' +
-      '<div class="card"><div class="card-head"><span class="card-title">Tasks by Project</span></div><div class="card-pad">' + tasksByProjectBars(base) + '</div></div>' +
       '<div class="card"><div class="card-head"><span class="card-title">Team Workload</span></div><div class="card-pad">' + teamWorkloadChart(members) + '</div></div>' +
     '</div>' +
     '<div class="card-head" style="padding:0;margin-bottom:10px"><span class="card-title" style="font-size:15px">Team Tasks ('+filtered.length+')</span><span class="sub">'+filtered.length+' of '+base.length+' tasks'+(state.search?' · matching "'+escHtml(state.search)+'"':'')+'</span></div>' +
@@ -2982,6 +2954,9 @@ function renderTaskFormModal(taskId){
   if (!support.linkedTask) missing.push('Resource request links (run add_linked_task_column.sql)');
   if (!support.workHours) missing.push('Work Start/End Time (run add_work_hours_columns.sql)');
   const curRecurrence = t ? (t.recurrence||'') : (d&&d.recurrence ? d.recurrence : '');
+  const hasAdvanced = isEdit && !!(t.recurrence || t.isUrgent || t.startTime || t.endTime || t.scheduleType==='fixed' || (t.level && t.level!==2));
+  if (state.modal.showAdvanced === undefined) state.modal.showAdvanced = hasAdvanced;
+  const advOpen = state.modal.showAdvanced;
   return '<div class="modal-overlay" onclick="if(event.target===this) cancelTaskForm()"><div class="modal wide">' +
     '<div class="modal-head"><h3>'+(isEdit?'Edit Task':'Create Task')+'</h3><span class="close-x" onclick="cancelTaskForm()">'+icon('x',15)+'</span></div>' +
     '<div class="modal-body">' +
@@ -3005,25 +2980,34 @@ function renderTaskFormModal(taskId){
         '<div class="field-group"><label>Due Date</label><input id="tf-due" type="date" class="field" value="'+(t?t.dueDate:(d&&d.due?d.due:addDaysISO(todayISO(),5)))+'" /></div>' +
       '</div>' +
       '<div class="field-row">' +
-        '<div class="field-group"><label>Work Start Time</label><input id="tf-start-time" type="time" class="field" value="'+escAttr(t?(t.startTime||''):(d&&d.startTime?d.startTime:''))+'" /></div>' +
-        '<div class="field-group"><label>Work End Time</label><input id="tf-end-time" type="time" class="field" value="'+escAttr(t?(t.endTime||''):(d&&d.endTime?d.endTime:''))+'" /></div>' +
-      '</div>' +
-      '<div class="field-row">' +
         '<div class="field-group"><label>Priority</label><select id="tf-priority">'+PRIORITIES.map(p=>'<option '+((t?t.priority:(d&&d.priority?d.priority:'Medium'))===p?'selected':'')+'>'+p+'</option>').join('')+'</select></div>' +
-        '<div class="field-group"><label>Task Level</label><select id="tf-level">'+[1,2,3,4].map(l=>'<option value="'+l+'" '+((t?t.level:(d&&d.level?Number(d.level):2))===l?'selected':'')+'>Level '+l+' — '+LEVELS[l].label+'</option>').join('')+'</select></div>' +
+        '<div class="field-group"><label>Status</label><select id="tf-status" data-was-overdue="'+(isEdit&&isOverdue(t)?'true':'false')+'" onchange="toggleLateCompletionField()">'+(isAdmin()?STATUSES:MEMBER_STATUSES).map(s=>'<option '+((t?t.status:(d&&d.status?d.status:'Not Started'))===s?'selected':'')+'>'+s+'</option>').join('')+'</select></div>' +
       '</div>' +
-      '<div class="field-row">' +
-        '<div class="field-group"><label>Urgent Work</label><label class="flex gap-6" style="font-size:12.5px;font-weight:600;cursor:pointer;padding:9px 0"><input type="checkbox" id="tf-urgent" '+((t?t.isUrgent:(d&&d.urgent==='1'))?'checked':'')+' onchange="document.getElementById(\'tf-urgent-reason-row\').style.display=(this.checked?\'\':\'none\')" /> Mark as Urgent Work</label></div>' +
-        '<div class="field-group"><label>Schedule Type</label><select id="tf-scheduletype"><option value="flexible" '+((t?t.scheduleType:(d&&d.scheduleType))!=='fixed'?'selected':'')+'>Flexible</option><option value="fixed" '+((t?t.scheduleType:(d&&d.scheduleType))==='fixed'?'selected':'')+'>Fixed (e.g. meeting)</option></select></div>' +
+      '<div class="field-row single" id="tf-late-reason-row" style="display:none">' +
+        '<div class="field-group"><label>Reason for Late Completion</label><textarea id="tf-completion-notes" class="field" rows="2" placeholder="Required — why is this task late?"></textarea></div>' +
       '</div>' +
-      '<div class="field-row single" id="tf-urgent-reason-row" style="display:'+((t?t.isUrgent:(d&&d.urgent==='1'))?'':'none')+'">' +
-        '<div class="field-group"><label>Reason for Urgency</label><input id="tf-urgent-reason" class="field" placeholder="e.g. Client presentation required before 2 PM" value="'+escAttr(t?t.urgencyReason:(d&&d.urgentReason?d.urgentReason:''))+'" /></div>' +
+      '<div class="divider" style="margin:10px 0"></div>' +
+      '<div class="flex-between" id="tf-advanced-toggle" style="cursor:pointer;margin-bottom:'+(advOpen?'12':'2')+'px" onclick="toggleAdvancedTaskFields()">' +
+        '<span class="sub" style="font-weight:700;color:var(--ink)"><span id="tf-adv-arrow">'+(advOpen?'▾':'▸')+'</span> More options <span class="muted" style="font-weight:500">— work hours, urgent work, repeat, task level</span></span>' +
       '</div>' +
-      '<div class="field-row">' +
-        '<div class="field-group"><label>Repeat</label><select id="tf-recurrence" onchange="updateDueDateFromRecurrence()">'+RECURRENCE_OPTIONS.map(o=>'<option value="'+o.value+'" '+(curRecurrence===o.value?'selected':'')+'>'+o.label+'</option>').join('')+'</select>' +
-          '<div class="sub" id="tf-recurrence-hint" style="margin-top:4px">'+(curRecurrence ? 'Due date auto-set to one '+(RECURRENCE_LABELS[curRecurrence]||'').toLowerCase()+' cycle from the start date — you can still adjust it above.' : '')+'</div>' +
+      '<div id="tf-advanced" style="display:'+(advOpen?'':'none')+'">' +
+        '<div class="field-row">' +
+          '<div class="field-group"><label>Work Start Time</label><input id="tf-start-time" type="time" class="field" value="'+escAttr(t?(t.startTime||''):(d&&d.startTime?d.startTime:''))+'" /></div>' +
+          '<div class="field-group"><label>Work End Time</label><input id="tf-end-time" type="time" class="field" value="'+escAttr(t?(t.endTime||''):(d&&d.endTime?d.endTime:''))+'" /></div>' +
         '</div>' +
-        '<div class="field-group"><label>Status</label><select id="tf-status">'+(isAdmin()?STATUSES:MEMBER_STATUSES).map(s=>'<option '+((t?t.status:(d&&d.status?d.status:'Not Started'))===s?'selected':'')+'>'+s+'</option>').join('')+'</select></div>' +
+        '<div class="field-row">' +
+          '<div class="field-group"><label>Task Level</label><select id="tf-level">'+[1,2,3,4].map(l=>'<option value="'+l+'" '+((t?t.level:(d&&d.level?Number(d.level):2))===l?'selected':'')+'>Level '+l+' — '+LEVELS[l].label+'</option>').join('')+'</select></div>' +
+          '<div class="field-group"><label>Schedule Type</label><select id="tf-scheduletype"><option value="flexible" '+((t?t.scheduleType:(d&&d.scheduleType))!=='fixed'?'selected':'')+'>Flexible</option><option value="fixed" '+((t?t.scheduleType:(d&&d.scheduleType))==='fixed'?'selected':'')+'>Fixed (e.g. meeting)</option></select></div>' +
+        '</div>' +
+        '<div class="field-row">' +
+          '<div class="field-group"><label>Urgent Work</label><label class="flex gap-6" style="font-size:12.5px;font-weight:600;cursor:pointer;padding:9px 0"><input type="checkbox" id="tf-urgent" '+((t?t.isUrgent:(d&&d.urgent==='1'))?'checked':'')+' onchange="document.getElementById(\'tf-urgent-reason-row\').style.display=(this.checked?\'\':\'none\')" /> Mark as Urgent Work</label></div>' +
+          '<div class="field-group"><label>Repeat</label><select id="tf-recurrence" onchange="updateDueDateFromRecurrence()">'+RECURRENCE_OPTIONS.map(o=>'<option value="'+o.value+'" '+(curRecurrence===o.value?'selected':'')+'>'+o.label+'</option>').join('')+'</select>' +
+            '<div class="sub" id="tf-recurrence-hint" style="margin-top:4px">'+(curRecurrence ? 'Due date auto-set to one '+(RECURRENCE_LABELS[curRecurrence]||'').toLowerCase()+' cycle from the start date — you can still adjust it above.' : '')+'</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="field-row single" id="tf-urgent-reason-row" style="display:'+((t?t.isUrgent:(d&&d.urgent==='1'))?'':'none')+'">' +
+          '<div class="field-group"><label>Reason for Urgency</label><input id="tf-urgent-reason" class="field" placeholder="e.g. Client presentation required before 2 PM" value="'+escAttr(t?t.urgencyReason:(d&&d.urgentReason?d.urgentReason:''))+'" /></div>' +
+        '</div>' +
       '</div>' +
     '</div>' +
     '<div class="modal-foot">' +
@@ -3045,6 +3029,21 @@ function updateDueDateFromRecurrence(){
   const start = startEl.value || todayISO();
   document.getElementById('tf-due').value = advanceDateByRecurrence(start, recurrence);
   if (hint) hint.textContent = 'Due date auto-set to one ' + (RECURRENCE_LABELS[recurrence]||'').toLowerCase() + ' cycle from the start date — you can still adjust it above.';
+}
+function toggleAdvancedTaskFields(){
+  // DOM-only toggle (no render()) so it doesn't rebuild the form from
+  // stale state and discard whatever the user has typed elsewhere.
+  state.modal.showAdvanced = !state.modal.showAdvanced;
+  const box = document.getElementById('tf-advanced');
+  const arrow = document.getElementById('tf-adv-arrow');
+  if (box) box.style.display = state.modal.showAdvanced ? '' : 'none';
+  if (arrow) arrow.textContent = state.modal.showAdvanced ? '▾' : '▸';
+}
+function toggleLateCompletionField(){
+  const sel = document.getElementById('tf-status');
+  const row = document.getElementById('tf-late-reason-row');
+  if (!sel || !row) return;
+  row.style.display = (sel.value === 'Completed' && sel.dataset.wasOverdue === 'true') ? '' : 'none';
 }
 function flagFieldError(elId, message){
   // Used instead of showToast() for in-form validation failures — showToast
@@ -3093,11 +3092,18 @@ async function saveTaskForm(id){
     const cur = DB.tasks.find(x => x.id===id);
     const wasCompleted = cur.status === 'Completed';
     const wasUrgent = cur.isUrgent;
+    const completingLate = status === 'Completed' && !wasCompleted && isOverdue(cur);
+    let lateReason = '';
+    if (completingLate){
+      lateReason = document.getElementById('tf-completion-notes').value.trim();
+      if (!lateReason){ flagFieldError('tf-completion-notes', 'Required — explain why this task is late'); return; }
+    }
     const patch = { name, description:desc, assignedTo:assignee, department:dept, project, startDate:start, dueDate:due, startTime, endTime, priority, level, status, recurrence, isUrgent, urgencyReason, scheduleType };
-    if (status === 'Completed' && cur.status !== 'Completed'){ patch.completionDate = new Date().toISOString(); patch.progress = 100; }
+    if (status === 'Completed' && cur.status !== 'Completed'){ patch.completionDate = new Date().toISOString(); patch.progress = 100; if (completingLate) patch.completionNotes = 'Late — ' + lateReason; }
     else if (status !== 'Completed' && cur.status === 'Completed'){ patch.completionDate = null; patch.progress = 75; }
     DB.updateTask(id, patch);
     if (isUrgent && !wasUrgent) DB.addComment(id, 'Marked as Urgent Work: ' + urgencyReason, currentUser().id, 'urgent');
+    if (completingLate) DB.addComment(id, 'Late — ' + lateReason, currentUser().id, 'completion');
     if (status === 'Completed' && !wasCompleted) spawnNextRecurrence(cur);
     showToast('Task updated');
   } else {
@@ -3142,17 +3148,20 @@ function spawnNextRecurrence(t){
   });
 }
 function confirmCompletion(id){
-  const notes = document.getElementById('completion-notes').value.trim();
   const t = DB.tasks.find(x => x.id===id);
+  const wasOverdue = t && isOverdue(t);
+  const notes = document.getElementById('completion-notes').value.trim();
+  if (wasOverdue && !notes){ flagFieldError('completion-notes', 'Required — explain why this task is late'); return; }
+  const finalNotes = wasOverdue ? ('Late — ' + notes) : notes;
   if (isAdmin()){
-    DB.updateTask(id, { progress:100, status:'Completed', completionDate:new Date().toISOString(), completionNotes:notes });
-    DB.addComment(id, notes || 'Marked as complete.', currentUser().id, 'completion');
+    DB.updateTask(id, { progress:100, status:'Completed', completionDate:new Date().toISOString(), completionNotes:finalNotes });
+    DB.addComment(id, finalNotes || 'Marked as complete.', currentUser().id, 'completion');
     state.modal.showCompletionPrompt = false;
     if (t) spawnNextRecurrence(t);
     showToast('Task marked complete');
   } else {
-    DB.updateTask(id, { progress:100, status:'Pending Approval', completionDate:new Date().toISOString(), completionNotes:notes });
-    DB.addComment(id, notes || 'Submitted for manager approval.', currentUser().id, 'completion');
+    DB.updateTask(id, { progress:100, status:'Pending Approval', completionDate:new Date().toISOString(), completionNotes:finalNotes });
+    DB.addComment(id, finalNotes || 'Submitted for manager approval.', currentUser().id, 'completion');
     state.modal.showCompletionPrompt = false;
     showToast('Submitted for approval');
   }
@@ -3202,10 +3211,12 @@ function commentBlock(c){
 }
 function completionPromptBlock(t){
   const admin = isAdmin();
-  return '<div class="card" style="background:var(--accent-soft);border-color:var(--accent);padding:10px;margin-top:4px">' +
+  const overdue = isOverdue(t);
+  return '<div class="card" style="background:'+(overdue?'var(--bad-soft)':'var(--accent-soft)')+';border-color:'+(overdue?'var(--bad)':'var(--accent)')+';padding:10px;margin-top:4px">' +
     '<div style="font-weight:700;font-size:12.5px;margin-bottom:6px">'+(admin?'Mark as complete':'Submit for approval')+' — add completion notes</div>' +
     (admin ? '' : '<div class="sub" style="margin-bottom:6px">This will go to your manager for approval before it counts as completed.</div>') +
-    '<textarea id="completion-notes" class="field" rows="2" placeholder="What was delivered? Any follow-ups?"></textarea>' +
+    (overdue ? '<div class="sub" style="margin-bottom:6px;color:var(--bad);font-weight:600">⚠️ This task is overdue. Explaining the delay is required, and the late completion will count against your On-Time Completion score.</div>' : '') +
+    '<textarea id="completion-notes" class="field" rows="2" placeholder="'+(overdue?'Required — why is this task late?':'What was delivered? Any follow-ups?')+'"></textarea>' +
     '<div class="flex gap-8" style="margin-top:8px"><button class="btn btn-sm btn-primary" onclick="confirmCompletion(\''+t.id+'\')">'+(admin?'Confirm Completion':'Submit for Approval')+'</button><button class="btn btn-sm btn-ghost" onclick="cancelCompletionPrompt()">Cancel</button></div>' +
   '</div>';
 }
