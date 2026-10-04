@@ -216,6 +216,15 @@
   .quick-action-btn{display:flex; flex-direction:column; align-items:center; gap:6px; padding:14px 8px; border-radius:var(--radius-sm); border:1px solid var(--border); background:var(--surface-solid); cursor:pointer; font-size:11.5px; font-weight:700; color:var(--ink-soft); transition:background .12s var(--ease), color .12s var(--ease);}
   .quick-action-btn:hover{background:var(--accent-soft); color:var(--accent-strong);}
   .activity-row{display:flex; align-items:flex-start; gap:10px; padding:8px 0; border-bottom:1px solid var(--border); cursor:pointer;}
+
+  /* ---------- Time Log ---------- */
+  .timelog-emp-card{margin-bottom:14px;}
+  .timelog-total{font-size:12.5px; font-weight:800;}
+  .timelog-total.warn{color:var(--warn);}
+  .timelog-total.bad{color:var(--bad);}
+  .timelog-row{display:flex; align-items:center; gap:10px; padding:7px 0; border-bottom:1px solid var(--border);}
+  .timelog-row:last-child{border-bottom:none;}
+  .timelog-time{font-size:11.5px; font-weight:700; color:var(--ink-soft); width:118px; flex:0 0 auto;}
   .activity-row:last-child{border-bottom:none;}
 
   /* ---------- pills / chips ---------- */
@@ -429,6 +438,9 @@ const DB = (function(){
   // Whether the urgent-work / schedule-type columns exist yet on `tasks`.
   // Same graceful-degradation approach as above.
   let urgentFieldsSupported = true;
+  // Whether the work start/end time columns exist yet on `tasks` (for
+  // the Time Log work-hour monitoring page). Same approach as above.
+  let workHoursSupported = true;
   const deptRows = [];   // internal {dbId, name} — departments/projects are
   const projRows = [];   // plain TEXT columns on tasks/employees, not FKs
 
@@ -467,7 +479,8 @@ const DB = (function(){
       completionDate:row.completion_date, progress:row.progress, completionNotes:row.completion_notes||'', recurrence:row.recurrence||null,
       linkedTaskId: row.linked_task_id!=null ? 'T'+String(row.linked_task_id).padStart(3,'0') : null,
       isUrgent: !!row.is_urgent, urgencyReason: row.urgency_reason||'', scheduleType: row.schedule_type||'flexible',
-      dailySequence: row.daily_sequence!=null ? row.daily_sequence : null, comments:[] };
+      dailySequence: row.daily_sequence!=null ? row.daily_sequence : null,
+      startTime: row.start_time||null, endTime: row.end_time||null, comments:[] };
   }
   function mapCommentRow(row){
     return { id:'C'+row.id, dbId:row.id, taskDbId:row.task_id, text:row.text, authorId: row.author_id!=null ? 'E'+row.author_id : null,
@@ -541,6 +554,13 @@ const DB = (function(){
       urgentFieldsSupported = !error;
       if (error) console.warn('Urgent Work unavailable — run add_urgent_work_columns.sql in Supabase to enable it.', error.message);
     } catch(e){ urgentFieldsSupported = false; }
+
+    // Same probe for work start/end time (Time Log).
+    try {
+      const { error } = await sb.from('tasks').select('start_time,end_time').limit(1);
+      workHoursSupported = !error;
+      if (error) console.warn('Work hours unavailable — run add_work_hours_columns.sql in Supabase to enable it.', error.message);
+    } catch(e){ workHoursSupported = false; }
   }
 
   function setupRealtime(onChange){
@@ -659,6 +679,7 @@ const DB = (function(){
       row.is_urgent = t.isUrgent===true; row.urgency_reason = t.urgencyReason||null;
       row.schedule_type = t.scheduleType||'flexible'; row.daily_sequence = t.dailySequence!=null?t.dailySequence:null;
     }
+    if (workHoursSupported){ row.start_time = t.startTime||null; row.end_time = t.endTime||null; }
     const { data, error } = await sb.from('tasks').insert(row).select().single();
     if (error) throw error;
     const mapped = mapTaskRow(data);
@@ -681,6 +702,7 @@ const DB = (function(){
       row.is_urgent = t.isUrgent===true; row.urgency_reason = t.urgencyReason||null;
       row.schedule_type = t.scheduleType||'flexible'; row.daily_sequence = t.dailySequence!=null?t.dailySequence:null;
     }
+    if (workHoursSupported){ row.start_time = t.startTime||null; row.end_time = t.endTime||null; }
     sb.from('tasks').update(row).eq('id', t.dbId).then(({error}) => { if (error) showToast('Could not save that change — check your connection'); });
     return t;
   }
@@ -780,11 +802,15 @@ const DB = (function(){
       .then(({error}) => { if (error) console.warn('Could not save read state', error); });
   }
 
+  function featureSupport(){
+    return { recurrence: recurrenceSupported, linkedTask: linkedTaskSupported, urgentWork: urgentFieldsSupported, workHours: workHoursSupported };
+  }
   return { employees, departments, projects, tasks, notifications, notificationReads,
     addEmployee, updateEmployee, addTask, updateTask, deleteTask, addComment,
     addProject, renameProject, addDepartment, renameDepartment,
     projectMascot, setProjectMascot,
     addNotification, markNotificationRead,
+    featureSupport,
     fetchAll, setupRealtime };
 })();
 
@@ -1252,6 +1278,7 @@ const state = {
   dashboardFilters: { project:'All', status:'All' },
   dashboardSelected: [],
   dashboardMenuOpenId: null,
+  timeLogDate: todayISO(),
   toast: null
 };
 applyTheme(state.theme);
@@ -1723,7 +1750,7 @@ function renderView(u){
     case 'calendar': return viewCalendar(u);
     case 'projects': return viewProjects();
     case 'files': return renderComingSoon('Files', 'A shared, searchable place for every attachment across your tasks and projects is coming in a later update.', 'folder');
-    case 'timelog': return renderComingSoon('Time Log', 'Start/stop timers and manual time entries per task are coming in a later update.', 'clock');
+    case 'timelog': return viewTimeLog(u);
     case 'team': return isAdmin() ? viewTeam() : viewDashboardMember(u);
     case 'reports': return viewReports(u);
     case 'settings': return isAdmin() ? viewSettings() : viewDashboardMember(u);
@@ -1903,6 +1930,62 @@ function todaysScheduleCard(taskList){
   return '<div class="card"><div class="card-head"><span class="card-title">Today\'s Schedule</span><button class="btn btn-sm btn-ghost" onclick="setView(\'calendar\')">View Calendar</button></div><div class="card-pad">' +
     (today.length ? today.map(t=>priorityRow(t)).join('') : '<div class="empty-state">Nothing due today.</div>') +
   '</div></div>';
+}
+/* =====================================================================
+   TIME LOG — work-hour monitoring from each task's Work Start/End Time
+   ===================================================================== */
+function workHoursFor(t){
+  if (!t.startTime || !t.endTime) return null;
+  const [sh,sm] = t.startTime.split(':').map(Number);
+  const [eh,em] = t.endTime.split(':').map(Number);
+  const hrs = (eh*60+em - (sh*60+sm)) / 60;
+  return hrs > 0 ? hrs : null;
+}
+function fmtTimeRange(t){
+  function fmt12(hm){
+    const [h,m] = hm.split(':').map(Number);
+    const ap = h>=12 ? 'PM' : 'AM';
+    const h12 = h%12===0 ? 12 : h%12;
+    return h12 + ':' + pad2(m) + ' ' + ap;
+  }
+  return fmt12(t.startTime) + ' – ' + fmt12(t.endTime);
+}
+function setTimeLogDate(v){ state.timeLogDate = v; render(); }
+function shiftTimeLogDate(days){ state.timeLogDate = addDaysISO(state.timeLogDate, days); render(); }
+function timeLogEmployeeCard(emp, tasksForDate){
+  const scheduled = tasksForDate.filter(t => t.assignedTo===emp.id && workHoursFor(t)!=null).sort((a,b)=> a.startTime<b.startTime?-1:1);
+  const total = scheduled.reduce((sum,t) => sum + workHoursFor(t), 0);
+  const totalCls = total > 9 ? 'bad' : total > 8 ? 'warn' : '';
+  return '<div class="card timelog-emp-card"><div class="card-head">' +
+      '<span class="flex gap-8" style="font-weight:800;font-size:13px">'+avatar(emp,24)+emp.name+'</span>' +
+      '<span class="timelog-total '+totalCls+'">'+(scheduled.length ? total.toFixed(1)+' hrs scheduled'+(total>9?' — overloaded':total>8?' — near capacity':'') : 'No scheduled hours')+'</span>' +
+    '</div>' +
+    (scheduled.length ? '<div class="card-pad">' + scheduled.map(t =>
+      '<div class="timelog-row" style="cursor:pointer" onclick="openTaskDetail(\''+t.id+'\')">' +
+        '<span class="timelog-time">'+fmtTimeRange(t)+'</span>' +
+        '<div style="flex:1;min-width:0"><div style="font-weight:700;font-size:12.5px" class="ellipsis">'+(t.isUrgent?'🔴 ':'')+escHtml(t.name)+'</div><div class="sub">'+escHtml(t.project)+'</div></div>' +
+        '<span class="sub num">'+workHoursFor(t).toFixed(1)+'h</span>' +
+      '</div>'
+    ).join('') + '</div>' : '')
+  + '</div>';
+}
+function viewTimeLog(u){
+  const date = state.timeLogDate || todayISO();
+  const scope = isAdmin() ? visibleTasks() : DB.tasks.filter(t=>t.assignedTo===u.id);
+  const tasksForDate = scope.filter(t => t.status!=='Cancelled' && t.dueDate===date);
+  const members = isAdmin() ? visibleEmployees().filter(e=>e.active) : [currentUser()];
+  const support = DB.featureSupport();
+
+  return '<div class="page-head"><div><div class="page-title">Time Log</div><div class="page-sub">Work hours scheduled per task'+(isAdmin()?' — monitor the team\'s workload across the day':'')+'.</div></div>' +
+    '<div class="flex gap-8" style="align-items:center">' +
+      '<button class="icon-btn" onclick="shiftTimeLogDate(-1)">'+icon('chevronleft',13)+'</button>' +
+      '<input type="date" class="field" value="'+date+'" onchange="setTimeLogDate(this.value)" />' +
+      '<button class="icon-btn" onclick="shiftTimeLogDate(1)">'+icon('chevronright',13)+'</button>' +
+      (date!==todayISO() ? '<button class="btn btn-sm btn-ghost" onclick="setTimeLogDate(\''+todayISO()+'\')">Today</button>' : '') +
+    '</div>' +
+  '</div>' +
+  (!support.workHours ? '<div class="card card-pad" style="margin-bottom:16px;background:var(--warn-soft);color:var(--warn);font-size:12.5px"><b>Heads up:</b> work start/end times aren\'t saving to the database yet — a one-time update is needed (add_work_hours_columns.sql). Times you enter on a task will show for this session only until that\'s run.</div>' : '') +
+  members.map(e => timeLogEmployeeCard(e, tasksForDate)).join('');
 }
 function viewDashboardAdmin(){
   const cs = companyStats(visibleTasks());
@@ -2831,6 +2914,7 @@ function captureTaskDraftIfOpen(){
   const draft = {
     name: val('tf-name'), desc: val('tf-desc'), assignee: val('tf-assignee'), dept: val('tf-dept'),
     project: val('tf-project'), projectOther: val('tf-project-other'), start: val('tf-start'), due: val('tf-due'),
+    startTime: val('tf-start-time'), endTime: val('tf-end-time'),
     priority: val('tf-priority'), level: val('tf-level'), status: val('tf-status'), recurrence: val('tf-recurrence'),
     urgent: checked('tf-urgent'), urgentReason: val('tf-urgent-reason'), scheduleType: val('tf-scheduletype')
   };
@@ -2849,10 +2933,17 @@ function renderTaskFormModal(taskId){
   const d = !isEdit ? (state.modal.draft || null) : null;
   const activeEmps = visibleEmployees().filter(e => e.active);
   const assignedByName = isEdit ? (DB.employees.find(e=>e.id===t.assignedBy)||{}).name : currentUser().name;
+  const support = DB.featureSupport();
+  const missing = [];
+  if (!support.recurrence) missing.push('Repeat (run add_recurrence_column.sql)');
+  if (!support.urgentWork) missing.push('Urgent Work / Schedule Type (run add_urgent_work_columns.sql)');
+  if (!support.linkedTask) missing.push('Resource request links (run add_linked_task_column.sql)');
+  if (!support.workHours) missing.push('Work Start/End Time (run add_work_hours_columns.sql)');
   return '<div class="modal-overlay" onclick="if(event.target===this) cancelTaskForm()"><div class="modal wide">' +
     '<div class="modal-head"><h3>'+(isEdit?'Edit Task':'Create Task')+'</h3><span class="close-x" onclick="cancelTaskForm()">'+icon('x',15)+'</span></div>' +
     '<div class="modal-body">' +
       (d ? '<div class="card-pad" style="background:var(--accent-soft);border-radius:var(--radius-sm);margin-bottom:14px;padding:10px 12px;display:flex;align-items:center;justify-content:space-between;gap:10px"><span style="font-size:12.5px;font-weight:600">Restored your unsaved draft from last time.</span><button class="btn btn-sm btn-ghost" onclick="discardTaskDraft()">Discard draft</button></div>' : '') +
+      (missing.length && isAdmin() ? '<div class="card-pad" style="background:var(--warn-soft);border-radius:var(--radius-sm);margin-bottom:14px;padding:10px 12px;font-size:12px;color:var(--warn)"><b>Heads up:</b> these fields will show in the form but won\'t be saved yet — a one-time database update is needed: '+escHtml(missing.join('; '))+'. Ask Claude to resend the SQL file if you need it again.</div>' : '') +
       '<div class="field-row single"><div class="field-group"><label>Task Name</label><input id="tf-name" class="field" value="'+escAttr(t?t.name:(d?d.name:''))+'" placeholder="e.g. Meta Ads creative refresh — Keystone Seasons" /></div></div>' +
       '<div class="field-row single"><div class="field-group"><label>Description</label><textarea id="tf-desc" class="field" rows="3" placeholder="What needs to be done">'+escHtml(t?t.description:(d?d.desc:''))+'</textarea></div></div>' +
       '<div class="field-row">' +
@@ -2869,6 +2960,10 @@ function renderTaskFormModal(taskId){
       '<div class="field-row">' +
         '<div class="field-group"><label>Start Date</label><input id="tf-start" type="date" class="field" value="'+(t?t.startDate:(d&&d.start?d.start:todayISO()))+'" /></div>' +
         '<div class="field-group"><label>Due Date</label><input id="tf-due" type="date" class="field" value="'+(t?t.dueDate:(d&&d.due?d.due:addDaysISO(todayISO(),5)))+'" /></div>' +
+      '</div>' +
+      '<div class="field-row">' +
+        '<div class="field-group"><label>Work Start Time</label><input id="tf-start-time" type="time" class="field" value="'+escAttr(t?(t.startTime||''):(d&&d.startTime?d.startTime:''))+'" /></div>' +
+        '<div class="field-group"><label>Work End Time</label><input id="tf-end-time" type="time" class="field" value="'+escAttr(t?(t.endTime||''):(d&&d.endTime?d.endTime:''))+'" /></div>' +
       '</div>' +
       '<div class="field-row">' +
         '<div class="field-group"><label>Priority</label><select id="tf-priority">'+PRIORITIES.map(p=>'<option '+((t?t.priority:(d&&d.priority?d.priority:'Medium'))===p?'selected':'')+'>'+p+'</option>').join('')+'</select></div>' +
@@ -2895,9 +2990,20 @@ function renderTaskFormModal(taskId){
     '</div>' +
   '</div></div>';
 }
+function flagFieldError(elId, message){
+  // Used instead of showToast() for in-form validation failures — showToast
+  // triggers a full re-render, which rebuilds this form from the unsaved
+  // task/draft and silently discards whatever else the user had typed.
+  const el = document.getElementById(elId);
+  if (!el) return;
+  el.style.borderColor = 'var(--bad)';
+  if (message) el.title = message;
+  el.focus();
+  if (el.scrollIntoView) el.scrollIntoView({ block:'center', behavior:'smooth' });
+}
 async function saveTaskForm(id){
   const name = document.getElementById('tf-name').value.trim();
-  if (!name){ showToast('Task name is required'); return; }
+  if (!name){ flagFieldError('tf-name', 'Task name is required'); return; }
   const assignee = document.getElementById('tf-assignee').value || null;
   const dept = document.getElementById('tf-dept').value;
   let project = document.getElementById('tf-project').value;
@@ -2907,6 +3013,8 @@ async function saveTaskForm(id){
   }
   const start = document.getElementById('tf-start').value;
   const due = document.getElementById('tf-due').value;
+  const startTime = document.getElementById('tf-start-time').value || null;
+  const endTime = document.getElementById('tf-end-time').value || null;
   const priority = document.getElementById('tf-priority').value;
   const level = Number(document.getElementById('tf-level').value);
   const status = document.getElementById('tf-status').value;
@@ -2915,16 +3023,13 @@ async function saveTaskForm(id){
   const isUrgent = document.getElementById('tf-urgent').checked;
   const urgencyReason = document.getElementById('tf-urgent-reason').value.trim();
   const scheduleType = document.getElementById('tf-scheduletype').value;
-  if (!start || !due){ showToast('Start and due dates are required'); return; }
-  if (due < start){ showToast('Due date cannot be before the start date'); return; }
+  if (!start){ flagFieldError('tf-start', 'Start date is required'); return; }
+  if (!due){ flagFieldError('tf-due', 'Due date is required'); return; }
+  if (due < start){ flagFieldError('tf-due', 'Due date cannot be before the start date'); return; }
+  if (startTime && endTime && endTime <= startTime){ flagFieldError('tf-end-time', 'Work end time must be after the start time'); return; }
   if (isUrgent && !urgencyReason){
-    // Avoid a full re-render here (showToast would rebuild this form from
-    // the unsaved task/draft and discard whatever else the user typed) —
-    // just flag the field directly instead.
-    const reasonEl = document.getElementById('tf-urgent-reason');
-    reasonEl.style.borderColor = 'var(--bad)';
-    reasonEl.placeholder = 'Required — say why this is urgent';
-    reasonEl.focus();
+    flagFieldError('tf-urgent-reason', 'Required — say why this is urgent');
+    document.getElementById('tf-urgent-reason').placeholder = 'Required — say why this is urgent';
     return;
   }
 
@@ -2932,7 +3037,7 @@ async function saveTaskForm(id){
     const cur = DB.tasks.find(x => x.id===id);
     const wasCompleted = cur.status === 'Completed';
     const wasUrgent = cur.isUrgent;
-    const patch = { name, description:desc, assignedTo:assignee, department:dept, project, startDate:start, dueDate:due, priority, level, status, recurrence, isUrgent, urgencyReason, scheduleType };
+    const patch = { name, description:desc, assignedTo:assignee, department:dept, project, startDate:start, dueDate:due, startTime, endTime, priority, level, status, recurrence, isUrgent, urgencyReason, scheduleType };
     if (status === 'Completed' && cur.status !== 'Completed'){ patch.completionDate = new Date().toISOString(); patch.progress = 100; }
     else if (status !== 'Completed' && cur.status === 'Completed'){ patch.completionDate = null; patch.progress = 75; }
     DB.updateTask(id, patch);
@@ -2942,7 +3047,7 @@ async function saveTaskForm(id){
   } else {
     try {
       const created = await DB.addTask({ name, description:desc, assignedTo:assignee, assignedBy:currentUser().id, department:dept, project,
-        createdDate:todayISO(), startDate:start, dueDate:due, priority, level, status, estimatedHours:null, actualHours:null,
+        createdDate:todayISO(), startDate:start, dueDate:due, startTime, endTime, priority, level, status, estimatedHours:null, actualHours:null,
         progress: status==='Completed'?100:0, completionDate: status==='Completed'?new Date().toISOString():null, completionNotes:'', recurrence,
         isUrgent, urgencyReason, scheduleType });
       if (isUrgent) DB.addComment(created.id, 'Marked as Urgent Work: ' + urgencyReason, currentUser().id, 'urgent');
@@ -3084,6 +3189,7 @@ function renderTaskDetailModal(taskId){
           detailField('Department', t.department) + detailField('Project / Client', t.project) +
           detailField('Created', fmtDate(t.createdDate)) + detailField('Start Date', fmtDate(t.startDate)) +
           detailField('Due Date', fmtDate(t.dueDate)) + detailField('Days Remaining', daysRemainingLabel(t)) +
+          (t.startTime && t.endTime ? detailField('Work Hours', fmtTimeRange(t)+' ('+workHoursFor(t).toFixed(1)+'h)') : '') +
           (t.recurrence ? detailField('Repeats', '🔁 ' + (RECURRENCE_LABELS[t.recurrence]||t.recurrence)) : '') +
           detailField('Estimated Time', t.estimatedHours!=null?t.estimatedHours+' hrs':'—') + detailField('Actual Time', t.actualHours!=null?t.actualHours+' hrs':'—') +
           (t.completionDate ? detailField(t.status==='Pending Approval'?'Submitted':'Completed', fmtDateTime(t.completionDate)) : '') +
