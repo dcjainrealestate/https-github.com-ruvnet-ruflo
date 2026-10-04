@@ -835,6 +835,24 @@ function advanceDateByRecurrence(iso, recurrence){
   }
 }
 function daysBetween(isoA, isoB){ return Math.round((parseISO(isoB) - parseISO(isoA)) / 86400000); }
+function startOfWeekISO(iso){ const d = parseISO(iso); const day = d.getDay(); const diff = (day===0?6:day-1); d.setDate(d.getDate()-diff); return toISO(d); }
+function lastWeekRange(){ const thisMon = startOfWeekISO(todayISO()); return { start: addDaysISO(thisMon,-7), end: addDaysISO(thisMon,-1) }; }
+function lastMonthRange(){ const d = parseISO(todayISO()); const firstThisMonth = new Date(d.getFullYear(), d.getMonth(), 1); const lastMonthEnd = new Date(d.getFullYear(), d.getMonth(), 0); const lastMonthStart = new Date(lastMonthEnd.getFullYear(), lastMonthEnd.getMonth(), 1); return { start: toISO(lastMonthStart), end: toISO(lastMonthEnd) }; }
+function dashboardRangeBounds(){
+  const r = state.dashboardRange;
+  switch(r.preset){
+    case 'yesterday': { const y = addDaysISO(todayISO(),-1); return { start:y, end:y }; }
+    case 'lastweek': return lastWeekRange();
+    case 'lastmonth': return lastMonthRange();
+    case 'custom': return { start: r.customStart||todayISO(), end: r.customEnd||todayISO() };
+    default: { const t = todayISO(); return { start:t, end:t }; }
+  }
+}
+function dashboardRangeLabel(){
+  const r = state.dashboardRange;
+  const map = { today:'Today', yesterday:'Yesterday', lastweek:'Last Week', lastmonth:'Last Month', custom:'Custom Range' };
+  return map[r.preset] || 'Today';
+}
 function fmtDate(iso){ if(!iso) return '—'; return parseISO(iso).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); }
 function fmtDateShort(iso){ if(!iso) return '—'; return parseISO(iso).toLocaleDateString('en-US',{month:'short',day:'numeric'}); }
 function fmtDateTime(iso){ const d = new Date(iso); return d.toLocaleDateString('en-US',{month:'short',day:'numeric'}) + ' · ' + d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}); }
@@ -1278,6 +1296,7 @@ const state = {
   dashboardFilters: { project:'All', status:'All' },
   dashboardSelected: [],
   dashboardMenuOpenId: null,
+  dashboardRange: { preset:'today', customStart: todayISO(), customEnd: todayISO() },
   timeLogDate: todayISO(),
   toast: null
 };
@@ -1841,6 +1860,8 @@ function greeting(){
 /* ---------- Admin Dashboard — Recent Tasks mini-table (tabs/filters/bulk actions) ---------- */
 function setDashboardTab(tab){ state.dashboardTab = tab; state.dashboardSelected = []; render(); }
 function setDashboardFilter(key, v){ state.dashboardFilters[key] = v; render(); }
+function setDashboardRangePreset(preset){ state.dashboardRange.preset = preset; render(); }
+function setDashboardRangeCustom(which, v){ state.dashboardRange[which] = v; state.dashboardRange.preset = 'custom'; render(); }
 function toggleDashboardRowSelect(id){
   const i = state.dashboardSelected.indexOf(id);
   if (i>-1) state.dashboardSelected.splice(i,1); else state.dashboardSelected.push(id);
@@ -1987,8 +2008,24 @@ function viewTimeLog(u){
   (!support.workHours ? '<div class="card card-pad" style="margin-bottom:16px;background:var(--warn-soft);color:var(--warn);font-size:12.5px"><b>Heads up:</b> work start/end times aren\'t saving to the database yet — a one-time update is needed (add_work_hours_columns.sql). Times you enter on a task will show for this session only until that\'s run.</div>' : '') +
   members.map(e => timeLogEmployeeCard(e, tasksForDate)).join('');
 }
+function dashboardRangePicker(){
+  const r = state.dashboardRange;
+  const presets = [{v:'today',l:'Today'},{v:'yesterday',l:'Yesterday'},{v:'lastweek',l:'Last Week'},{v:'lastmonth',l:'Last Month'},{v:'custom',l:'Custom'}];
+  return '<div class="flex gap-8" style="align-items:center;flex-wrap:wrap">' +
+      '<select class="field" style="padding:8px 12px;font-size:12.5px;font-weight:600" onchange="setDashboardRangePreset(this.value)">' +
+        presets.map(p=>'<option value="'+p.v+'" '+(r.preset===p.v?'selected':'')+'>'+p.l+'</option>').join('') +
+      '</select>' +
+      (r.preset==='custom' ?
+        '<input type="date" class="field" style="padding:8px 10px;font-size:12.5px" value="'+r.customStart+'" onchange="setDashboardRangeCustom(\'customStart\', this.value)" />' +
+        '<span class="sub">to</span>' +
+        '<input type="date" class="field" style="padding:8px 10px;font-size:12.5px" value="'+r.customEnd+'" onchange="setDashboardRangeCustom(\'customEnd\', this.value)" />'
+      : '') +
+    '</div>';
+}
 function viewDashboardAdmin(){
-  const cs = companyStats(visibleTasks());
+  const range = dashboardRangeBounds();
+  const rangedTasks = visibleTasks().filter(t => t.dueDate && t.dueDate>=range.start && t.dueDate<=range.end);
+  const cs = companyStats(rangedTasks);
   const now = todayDate();
 
   const upcoming = visibleTasks().filter(t => t.status!=='Completed' && t.status!=='Cancelled' && t.dueDate>=todayISO() && t.dueDate<=addDaysISO(todayISO(),7))
@@ -2008,6 +2045,11 @@ function viewDashboardAdmin(){
     '</div>' +
   '</div>' +
 
+  '<div class="flex-between" style="margin-bottom:12px;flex-wrap:wrap;gap:10px">' +
+    '<span class="sub" style="font-weight:700">Showing tasks due: '+dashboardRangeLabel()+' ('+fmtDateShort(range.start)+(range.end!==range.start?' – '+fmtDateShort(range.end):'')+')</span>' +
+    dashboardRangePicker() +
+  '</div>' +
+
   '<div class="grid grid-kpi" style="margin-bottom:16px">' +
     kpiTile('Total Tasks', cs.total, trends.createdThis+' created this week', '', trends.createdTrend) +
     kpiTile('Completed', cs.completed, Math.round(cs.completionRate)+'% completion', 'good', trends.completedTrend) +
@@ -2018,7 +2060,7 @@ function viewDashboardAdmin(){
   '<div class="grid grid-2" style="margin-bottom:16px;align-items:start">' +
     '<div class="stack" style="gap:16px">' +
       '<div class="grid grid-2" style="gap:16px">' +
-        '<div class="card"><div class="card-head"><span class="card-title">Task Overview</span></div><div class="card-pad">' + taskOverviewChart(visibleTasks()) + '</div></div>' +
+        '<div class="card"><div class="card-head"><span class="card-title">Task Overview</span></div><div class="card-pad">' + taskOverviewChart(rangedTasks) + '</div></div>' +
         '<div class="card"><div class="card-head"><span class="card-title">Tasks by Status</span></div><div class="card-pad">' + taskStatusDonut(cs, 130) + '</div></div>' +
       '</div>' +
       dashboardRecentTasksCard() +
@@ -2939,6 +2981,7 @@ function renderTaskFormModal(taskId){
   if (!support.urgentWork) missing.push('Urgent Work / Schedule Type (run add_urgent_work_columns.sql)');
   if (!support.linkedTask) missing.push('Resource request links (run add_linked_task_column.sql)');
   if (!support.workHours) missing.push('Work Start/End Time (run add_work_hours_columns.sql)');
+  const curRecurrence = t ? (t.recurrence||'') : (d&&d.recurrence ? d.recurrence : '');
   return '<div class="modal-overlay" onclick="if(event.target===this) cancelTaskForm()"><div class="modal wide">' +
     '<div class="modal-head"><h3>'+(isEdit?'Edit Task':'Create Task')+'</h3><span class="close-x" onclick="cancelTaskForm()">'+icon('x',15)+'</span></div>' +
     '<div class="modal-body">' +
@@ -2958,7 +3001,7 @@ function renderTaskFormModal(taskId){
         '<div class="field-group"><label>Custom Project / Client Name</label><input id="tf-project-other" class="field" placeholder="Type the project or client name" value="'+escAttr(d&&d.projectOther?d.projectOther:'')+'" /></div>' +
       '</div>' +
       '<div class="field-row">' +
-        '<div class="field-group"><label>Start Date</label><input id="tf-start" type="date" class="field" value="'+(t?t.startDate:(d&&d.start?d.start:todayISO()))+'" /></div>' +
+        '<div class="field-group"><label>Start Date</label><input id="tf-start" type="date" class="field" value="'+(t?t.startDate:(d&&d.start?d.start:todayISO()))+'" onchange="if(document.getElementById(\'tf-recurrence\').value) updateDueDateFromRecurrence()" /></div>' +
         '<div class="field-group"><label>Due Date</label><input id="tf-due" type="date" class="field" value="'+(t?t.dueDate:(d&&d.due?d.due:addDaysISO(todayISO(),5)))+'" /></div>' +
       '</div>' +
       '<div class="field-row">' +
@@ -2977,7 +3020,9 @@ function renderTaskFormModal(taskId){
         '<div class="field-group"><label>Reason for Urgency</label><input id="tf-urgent-reason" class="field" placeholder="e.g. Client presentation required before 2 PM" value="'+escAttr(t?t.urgencyReason:(d&&d.urgentReason?d.urgentReason:''))+'" /></div>' +
       '</div>' +
       '<div class="field-row">' +
-        '<div class="field-group"><label>Repeat</label><select id="tf-recurrence">'+RECURRENCE_OPTIONS.map(o=>'<option value="'+o.value+'" '+((t?(t.recurrence||''):(d&&d.recurrence?d.recurrence:''))===o.value?'selected':'')+'>'+o.label+'</option>').join('')+'</select></div>' +
+        '<div class="field-group"><label>Repeat</label><select id="tf-recurrence" onchange="updateDueDateFromRecurrence()">'+RECURRENCE_OPTIONS.map(o=>'<option value="'+o.value+'" '+(curRecurrence===o.value?'selected':'')+'>'+o.label+'</option>').join('')+'</select>' +
+          '<div class="sub" id="tf-recurrence-hint" style="margin-top:4px">'+(curRecurrence ? 'Due date auto-set to one '+(RECURRENCE_LABELS[curRecurrence]||'').toLowerCase()+' cycle from the start date — you can still adjust it above.' : '')+'</div>' +
+        '</div>' +
         '<div class="field-group"><label>Status</label><select id="tf-status">'+(isAdmin()?STATUSES:MEMBER_STATUSES).map(s=>'<option '+((t?t.status:(d&&d.status?d.status:'Not Started'))===s?'selected':'')+'>'+s+'</option>').join('')+'</select></div>' +
       '</div>' +
     '</div>' +
@@ -2989,6 +3034,17 @@ function renderTaskFormModal(taskId){
       (!(isEdit && state.modal.confirmDelete) ? ('<button class="btn btn-ghost" onclick="cancelTaskForm()">Cancel</button><button class="btn btn-primary" onclick="saveTaskForm('+(isEdit?"'"+t.id+"'":'null')+')">Save Task</button>') : '') +
     '</div>' +
   '</div></div>';
+}
+function updateDueDateFromRecurrence(){
+  // Runs on the Repeat dropdown's onchange — does NOT call render(), so it
+  // won't wipe the rest of the open form (see flagFieldError's note below).
+  const recurrence = document.getElementById('tf-recurrence').value;
+  const hint = document.getElementById('tf-recurrence-hint');
+  if (!recurrence){ if (hint) hint.textContent = ''; return; }
+  const startEl = document.getElementById('tf-start');
+  const start = startEl.value || todayISO();
+  document.getElementById('tf-due').value = advanceDateByRecurrence(start, recurrence);
+  if (hint) hint.textContent = 'Due date auto-set to one ' + (RECURRENCE_LABELS[recurrence]||'').toLowerCase() + ' cycle from the start date — you can still adjust it above.';
 }
 function flagFieldError(elId, message){
   // Used instead of showToast() for in-form validation failures — showToast
