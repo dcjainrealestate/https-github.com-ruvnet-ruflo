@@ -197,8 +197,8 @@
   .donut-legend-row{display:flex; align-items:center; gap:7px; font-size:12.5px; font-weight:600; cursor:pointer;}
   .donut-seg{cursor:pointer; transition:opacity .12s var(--ease);}
   .donut-seg:hover{opacity:.78;}
-  .chart-point{cursor:pointer; transition:r .12s var(--ease);}
-  .chart-point:hover{r:4.5;}
+  .chart-point{cursor:pointer;}
+  .chart-tooltip{position:fixed; display:none; pointer-events:none; z-index:500; background:var(--ink,#1a1d1f); color:#fff; font-size:11.5px; font-weight:600; padding:6px 10px; border-radius:7px; box-shadow:0 6px 18px rgba(0,0,0,.25); white-space:nowrap;}
   .legend-dot{width:9px; height:9px; border-radius:50%; flex:0 0 auto;}
   .proj-bar-row{padding:7px 0; cursor:pointer;}
   .proj-bar-head{display:flex; justify-content:space-between; font-size:12.5px; font-weight:600; margin-bottom:5px;}
@@ -842,20 +842,22 @@ function daysBetween(isoA, isoB){ return Math.round((parseISO(isoB) - parseISO(i
 function startOfWeekISO(iso){ const d = parseISO(iso); const day = d.getDay(); const diff = (day===0?6:day-1); d.setDate(d.getDate()-diff); return toISO(d); }
 function lastWeekRange(){ const thisMon = startOfWeekISO(todayISO()); return { start: addDaysISO(thisMon,-7), end: addDaysISO(thisMon,-1) }; }
 function lastMonthRange(){ const d = parseISO(todayISO()); const firstThisMonth = new Date(d.getFullYear(), d.getMonth(), 1); const lastMonthEnd = new Date(d.getFullYear(), d.getMonth(), 0); const lastMonthStart = new Date(lastMonthEnd.getFullYear(), lastMonthEnd.getMonth(), 1); return { start: toISO(lastMonthStart), end: toISO(lastMonthEnd) }; }
+function thisMonthRange(){ const d = parseISO(todayISO()); const first = new Date(d.getFullYear(), d.getMonth(), 1); const last = new Date(d.getFullYear(), d.getMonth()+1, 0); return { start: toISO(first), end: toISO(last) }; }
 function dashboardRangeBounds(){
   const r = state.dashboardRange;
   switch(r.preset){
+    case 'today': { const t = todayISO(); return { start:t, end:t }; }
     case 'yesterday': { const y = addDaysISO(todayISO(),-1); return { start:y, end:y }; }
     case 'lastweek': return lastWeekRange();
     case 'lastmonth': return lastMonthRange();
     case 'custom': return { start: r.customStart||todayISO(), end: r.customEnd||todayISO() };
-    default: { const t = todayISO(); return { start:t, end:t }; }
+    default: return thisMonthRange();
   }
 }
 function dashboardRangeLabel(){
   const r = state.dashboardRange;
-  const map = { today:'Today', yesterday:'Yesterday', lastweek:'Last Week', lastmonth:'Last Month', custom:'Custom Range' };
-  return map[r.preset] || 'Today';
+  const map = { thismonth:'This Month', today:'Today', yesterday:'Yesterday', lastweek:'Last Week', lastmonth:'Last Month', custom:'Custom Range' };
+  return map[r.preset] || 'This Month';
 }
 function fmtDate(iso){ if(!iso) return '—'; return parseISO(iso).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); }
 function fmtDateShort(iso){ if(!iso) return '—'; return parseISO(iso).toLocaleDateString('en-US',{month:'short',day:'numeric'}); }
@@ -1064,6 +1066,35 @@ function weeklyTrends(taskList){
 }
 
 /* ---------- Task Status donut (inline SVG, no chart library) ---------- */
+/* ---------- Shared chart hover tooltip (single reused element, lives outside #app so render() never wipes it) ---------- */
+let chartTooltipEl = null;
+function chartTooltip(){
+  if (!chartTooltipEl){
+    chartTooltipEl = document.createElement('div');
+    chartTooltipEl.className = 'chart-tooltip';
+    document.body.appendChild(chartTooltipEl);
+  }
+  return chartTooltipEl;
+}
+function showChartTooltip(ev, text){
+  const el = chartTooltip();
+  el.textContent = text;
+  el.style.display = 'block';
+  moveChartTooltip(ev);
+}
+function moveChartTooltip(ev){
+  const el = chartTooltip();
+  if (el.style.display === 'none') return;
+  const pad = 14;
+  let x = ev.clientX + pad, y = ev.clientY + pad;
+  const vw = window.innerWidth, vh = window.innerHeight;
+  const rect = el.getBoundingClientRect();
+  if (x + rect.width > vw) x = ev.clientX - rect.width - pad;
+  if (y + rect.height > vh) y = ev.clientY - rect.height - pad;
+  el.style.left = Math.max(4,x) + 'px';
+  el.style.top = Math.max(4,y) + 'px';
+}
+function hideChartTooltip(){ const el = chartTooltip(); el.style.display = 'none'; }
 function taskStatusDonut(cs, size){
   size = size || 150;
   const segs = [
@@ -1078,7 +1109,8 @@ function taskStatusDonut(cs, size){
   const arcs = total ? segs.map(s => {
     const frac = s.value/total;
     const dash = frac*c;
-    const el = '<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="none" stroke="'+s.color+'" stroke-width="16" stroke-dasharray="'+dash+' '+(c-dash)+'" stroke-dashoffset="'+(-offset)+'" class="donut-seg"><title>'+s.label+': '+s.value+' ('+Math.round(frac*100)+'%)</title></circle>';
+    const tip = s.label+': '+s.value+' ('+Math.round(frac*100)+'%)';
+    const el = '<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="none" stroke="'+s.color+'" stroke-width="16" stroke-dasharray="'+dash+' '+(c-dash)+'" stroke-dashoffset="'+(-offset)+'" class="donut-seg" onmousemove="showChartTooltip(event, \''+tip+'\')" onmouseleave="hideChartTooltip()"></circle>';
     offset += dash;
     return el;
   }).join('') : '<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="none" stroke="var(--border-strong)" stroke-width="16"/>';
@@ -1119,7 +1151,11 @@ function taskOverviewChart(taskList, days){
     const line = pts.map((p,i)=> (i===0?'M':'L')+p[0].toFixed(1)+','+p[1].toFixed(1)).join(' ');
     const area = line + ' L'+pts[pts.length-1][0].toFixed(1)+','+(padT+plotH)+' L'+pts[0][0].toFixed(1)+','+(padT+plotH)+' Z';
     return '<path d="'+area+'" fill="'+color+'" opacity="0.07"></path><path d="'+line+'" fill="none" stroke="'+color+'" stroke-width="2"/>' +
-      pts.map((p,i)=>'<circle class="chart-point" cx="'+p[0].toFixed(1)+'" cy="'+p[1].toFixed(1)+'" r="2.5" fill="'+color+'"><title>'+seriesLabel+' — '+labels[i]+': '+series[i]+'</title></circle>').join('');
+      pts.map((p,i)=>{
+        const tip = seriesLabel+' — '+labels[i]+': '+series[i];
+        return '<circle cx="'+p[0].toFixed(1)+'" cy="'+p[1].toFixed(1)+'" r="2.5" fill="'+color+'" style="pointer-events:none"></circle>' +
+          '<circle class="chart-point" cx="'+p[0].toFixed(1)+'" cy="'+p[1].toFixed(1)+'" r="9" fill="transparent" onmousemove="showChartTooltip(event, \''+tip+'\')" onmouseleave="hideChartTooltip()"></circle>';
+      }).join('');
   }
   const gridLines = [0,0.33,0.66,1].map(f => '<line x1="'+padL+'" y1="'+(padT+plotH*f).toFixed(1)+'" x2="'+(w-padR)+'" y2="'+(padT+plotH*f).toFixed(1)+'" stroke="var(--border)" stroke-width="1"/>').join('');
   return '<div class="flex gap-14" style="font-size:11px;color:var(--ink-faint);font-weight:700;margin-bottom:6px;flex-wrap:wrap">' +
@@ -1276,7 +1312,7 @@ const state = {
   dashboardFilters: { project:'All', status:'All' },
   dashboardSelected: [],
   dashboardMenuOpenId: null,
-  dashboardRange: { preset:'today', customStart: todayISO(), customEnd: todayISO() },
+  dashboardRange: { preset:'thismonth', customStart: todayISO(), customEnd: todayISO() },
   timeLogDate: todayISO(),
   toast: null
 };
@@ -1990,7 +2026,7 @@ function viewTimeLog(u){
 }
 function dashboardRangePicker(){
   const r = state.dashboardRange;
-  const presets = [{v:'today',l:'Today'},{v:'yesterday',l:'Yesterday'},{v:'lastweek',l:'Last Week'},{v:'lastmonth',l:'Last Month'},{v:'custom',l:'Custom'}];
+  const presets = [{v:'thismonth',l:'This Month'},{v:'today',l:'Today'},{v:'yesterday',l:'Yesterday'},{v:'lastweek',l:'Last Week'},{v:'lastmonth',l:'Last Month'},{v:'custom',l:'Custom'}];
   return '<div class="flex gap-8" style="align-items:center;flex-wrap:wrap">' +
       '<select class="field" style="padding:8px 12px;font-size:12.5px;font-weight:600" onchange="setDashboardRangePreset(this.value)">' +
         presets.map(p=>'<option value="'+p.v+'" '+(r.preset===p.v?'selected':'')+'>'+p.l+'</option>').join('') +
