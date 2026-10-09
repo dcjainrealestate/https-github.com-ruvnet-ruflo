@@ -10,3 +10,4 @@ dist/
 # nobody remembers to set VITE_API_URL / VITE_GOOGLE_CLIENT_ID.
 !frontend/.env.production
 coverage/
+.claude-flow/
