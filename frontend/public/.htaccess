@@ -1,0 +1,13 @@
+# Single-page app fallback: let React Router handle every route client-side.
+# Without this, refreshing (or directly opening) a deep link like
+# /inventory or /admin/users 404s because no such file exists on disk -
+# only index.html does. Actual files (JS/CSS/images) still get served
+# directly since the RewriteCond checks below skip existing files/folders.
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+  RewriteCond %{REQUEST_FILENAME} -f [OR]
+  RewriteCond %{REQUEST_FILENAME} -d
+  RewriteRule ^ - [L]
+  RewriteRule ^ index.html [L]
+</IfModule>
