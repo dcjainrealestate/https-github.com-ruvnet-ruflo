@@ -453,6 +453,9 @@ const DB = (function(){
   // tasks column) since a meeting has multiple attendees. Same
   // graceful-degradation approach as above.
   let meetingsSupported = true;
+  // Whether the `status` column exists yet on `meetings` (the disposition —
+  // Scheduled/Done/Cancelled/Postponed). Same graceful-degradation approach.
+  let meetingStatusSupported = true;
   const deptRows = [];   // internal {dbId, name} — departments/projects are
   const projRows = [];   // plain TEXT columns on tasks/employees, not FKs
 
@@ -499,7 +502,7 @@ const DB = (function(){
       organizerId: row.organizer_id!=null ? 'E'+row.organizer_id : null,
       attendeeIds: Array.isArray(row.attendee_ids) ? row.attendee_ids.map(x=>'E'+x) : [],
       department: row.department||'', meetingDate: row.meeting_date, startTime: row.start_time||null, endTime: row.end_time||null,
-      agenda: row.agenda||'', createdAt: row.created_at };
+      agenda: row.agenda||'', status: row.status||'Scheduled', createdAt: row.created_at };
   }
   function mapCommentRow(row){
     return { id:'C'+row.id, dbId:row.id, taskDbId:row.task_id, text:row.text, authorId: row.author_id!=null ? 'E'+row.author_id : null,
@@ -593,6 +596,13 @@ const DB = (function(){
       meetingsSupported = false;
       console.warn('Meetings unavailable — run add_meetings_table.sql in Supabase to enable it.', e && e.message);
     }
+
+    // Same probe for the meeting disposition (status) column.
+    try {
+      const { error } = await sb.from('meetings').select('status').limit(1);
+      meetingStatusSupported = !error;
+      if (error) console.warn('Meeting status unavailable — run add_meeting_status_column.sql in Supabase to enable it.', error.message);
+    } catch(e){ meetingStatusSupported = false; }
   }
 
   function setupRealtime(onChange){
@@ -760,6 +770,7 @@ const DB = (function(){
       attendee_ids:(m.attendeeIds||[]).map(rawId), department:m.department||null,
       meeting_date:m.meetingDate, start_time:m.startTime||null, end_time:m.endTime||null, agenda:m.agenda||''
     };
+    if (meetingStatusSupported) row.status = m.status||'Scheduled';
     const { data, error } = await sb.from('meetings').insert(row).select().single();
     if (error) throw error;
     const mapped = mapMeetingRow(data);
@@ -775,6 +786,7 @@ const DB = (function(){
       attendee_ids:(m.attendeeIds||[]).map(rawId), department:m.department||null,
       meeting_date:m.meetingDate, start_time:m.startTime||null, end_time:m.endTime||null, agenda:m.agenda||''
     };
+    if (meetingStatusSupported) row.status = m.status||'Scheduled';
     sb.from('meetings').update(row).eq('id', m.dbId).then(({error}) => { if (error) showToast('Could not save that meeting — check your connection'); });
     return m;
   }
@@ -875,7 +887,7 @@ const DB = (function(){
   }
 
   function featureSupport(){
-    return { recurrence: recurrenceSupported, linkedTask: linkedTaskSupported, urgentWork: urgentFieldsSupported, workHours: workHoursSupported, meetings: meetingsSupported };
+    return { recurrence: recurrenceSupported, linkedTask: linkedTaskSupported, urgentWork: urgentFieldsSupported, workHours: workHoursSupported, meetings: meetingsSupported, meetingStatus: meetingStatusSupported };
   }
   return { employees, departments, projects, tasks, meetings, notifications, notificationReads,
     addEmployee, updateEmployee, addTask, updateTask, deleteTask, addComment,
@@ -958,6 +970,11 @@ const RECURRENCE_OPTIONS = [{value:'',label:'Does not repeat'},{value:'daily',la
 // involvement analysis on the Meetings page.
 const MEETING_TYPES = ['Technical','Strategic','Team Huddle'];
 const MEETING_TYPE_CLASS = {'Technical':'technical','Strategic':'strategic','Team Huddle':'huddle'};
+// Disposition — what actually happened to a scheduled meeting. Cancelled
+// and Postponed meetings are excluded from the involvement analysis since
+// they didn't actually consume anyone's time.
+const MEETING_STATUSES = ['Scheduled','Done','Cancelled','Postponed'];
+const MEETING_STATUS_CLASS = {'Scheduled':'notstarted','Done':'completed','Cancelled':'cancelled','Postponed':'onhold'};
 const RECURRENCE_LABELS = {daily:'Daily', weekly:'Weekly', monthly:'Monthly', yearly:'Yearly'};
 
 function isOverdue(t){ return t.status !== 'Completed' && t.status !== 'Cancelled' && t.status !== 'Pending Approval' && t.dueDate < todayISO(); }
@@ -979,6 +996,7 @@ function statusPill(t){
   return html;
 }
 function meetingTypePill(type){ return '<span class="pill pill-'+(MEETING_TYPE_CLASS[type]||'huddle')+'">'+type+'</span>'; }
+function meetingStatusPill(status){ return '<span class="pill pill-status-'+(MEETING_STATUS_CLASS[status]||'notstarted')+'">'+(status||'Scheduled')+'</span>'; }
 function urgentBadge(t){ return t.isUrgent ? '<span class="pill pill-urgent">'+icon('alert',10)+' URGENT</span>' : ''; }
 function fixedBadge(t){ return t.scheduleType==='fixed' ? '<span class="pill pill-fixed">'+icon('calendar',10)+' Fixed</span>' : ''; }
 function levelBars(level){
@@ -3261,16 +3279,18 @@ function renderMeetingFormModal(meetingId){
   return '<div class="modal-overlay" onclick="if(event.target===this) closeModal()"><div class="modal">' +
     '<div class="modal-head"><h3>'+(isEdit?'Edit Meeting':'Add Meeting')+'</h3><span class="close-x" onclick="closeModal()">'+icon('x',15)+'</span></div>' +
     '<div class="modal-body">' +
-      (!support.meetings ? '<div class="card-pad" style="background:var(--warn-soft);border-radius:var(--radius-sm);margin-bottom:14px;padding:10px 12px;font-size:12px;color:var(--warn)"><b>Heads up:</b> Meetings aren\'t saving to the database yet — a one-time update is needed (add_meetings_table.sql). Ask Claude to resend the SQL file if you need it again.</div>' : '') +
+      (!support.meetings ? '<div class="card-pad" style="background:var(--warn-soft);border-radius:var(--radius-sm);margin-bottom:14px;padding:10px 12px;font-size:12px;color:var(--warn)"><b>Heads up:</b> Meetings aren\'t saving to the database yet — a one-time update is needed (add_meetings_table.sql). Ask Claude to resend the SQL file if you need it again.</div>' :
+       (!support.meetingStatus ? '<div class="card-pad" style="background:var(--warn-soft);border-radius:var(--radius-sm);margin-bottom:14px;padding:10px 12px;font-size:12px;color:var(--warn)"><b>Heads up:</b> the Status field will show here but won\'t be saved yet — a one-time update is needed (add_meeting_status_column.sql).</div>' : '')) +
       '<div class="field-row single"><div class="field-group"><label>Meeting Title</label><input id="mf-title" class="field" value="'+escAttr(m?m.title:'')+'" placeholder="e.g. Keystone Seasons — weekly sync" /></div></div>' +
       '<div class="field-row">' +
         '<div class="field-group"><label>Meeting Type</label><select id="mf-type">'+MEETING_TYPES.map(t=>'<option '+((m?m.meetingType:'Team Huddle')===t?'selected':'')+'>'+t+'</option>').join('')+'</select></div>' +
-        '<div class="field-group"><label>Department</label><select id="mf-dept">'+DB.departments.map(dpt=>'<option '+((m?m.department:currentUser().department)===dpt?'selected':'')+'>'+dpt+'</option>').join('')+'</select></div>' +
+        '<div class="field-group"><label>Status</label><select id="mf-status">'+MEETING_STATUSES.map(s=>'<option '+((m?m.status:'Scheduled')===s?'selected':'')+'>'+s+'</option>').join('')+'</select></div>' +
       '</div>' +
       '<div class="field-row">' +
+        '<div class="field-group"><label>Department</label><select id="mf-dept">'+DB.departments.map(dpt=>'<option '+((m?m.department:currentUser().department)===dpt?'selected':'')+'>'+dpt+'</option>').join('')+'</select></div>' +
         '<div class="field-group"><label>Date</label><input id="mf-date" type="date" class="field" value="'+(m?m.meetingDate:todayISO())+'" /></div>' +
-        '<div class="field-group"><label>Organizer</label><input class="field" value="'+escAttr(organizerName)+'" disabled /></div>' +
       '</div>' +
+      '<div class="field-row single"><div class="field-group"><label>Organizer</label><input class="field" value="'+escAttr(organizerName)+'" disabled /></div></div>' +
       '<div class="field-row">' +
         '<div class="field-group"><label>Start Time</label><input id="mf-start-time" type="time" class="field" value="'+escAttr(m?m.startTime||'':'')+'" /></div>' +
         '<div class="field-group"><label>End Time</label><input id="mf-end-time" type="time" class="field" value="'+escAttr(m?m.endTime||'':'')+'" /></div>' +
@@ -3295,6 +3315,7 @@ async function saveMeetingForm(id){
   const title = document.getElementById('mf-title').value.trim();
   if (!title){ flagFieldError('mf-title', 'Meeting title is required'); return; }
   const meetingType = document.getElementById('mf-type').value;
+  const status = document.getElementById('mf-status').value;
   const department = document.getElementById('mf-dept').value;
   const meetingDate = document.getElementById('mf-date').value;
   if (!meetingDate){ flagFieldError('mf-date', 'Date is required'); return; }
@@ -3306,11 +3327,11 @@ async function saveMeetingForm(id){
   const agenda = document.getElementById('mf-agenda').value.trim();
 
   if (id){
-    DB.updateMeeting(id, { title, meetingType, department, meetingDate, startTime, endTime, attendeeIds, agenda });
+    DB.updateMeeting(id, { title, meetingType, status, department, meetingDate, startTime, endTime, attendeeIds, agenda });
     showToast('Meeting updated');
   } else {
     try {
-      await DB.addMeeting({ title, meetingType, department, meetingDate, startTime, endTime, attendeeIds, agenda, organizerId: currentUser().id });
+      await DB.addMeeting({ title, meetingType, status, department, meetingDate, startTime, endTime, attendeeIds, agenda, organizerId: currentUser().id });
       showToast('Meeting added');
     } catch(e){
       console.error('Could not save meeting', e);
@@ -3335,7 +3356,10 @@ async function saveMeetingForm(id){
 /* ---------- Meeting involvement — who is spending time in which kind of meeting ---------- */
 function meetingStatsByEmployee(meetingList){
   const byEmp = {};
-  meetingList.forEach(m => {
+  // A meeting that was cancelled or postponed never actually happened, so
+  // it shouldn't count as time spent — only Scheduled (upcoming, still
+  // committed) and Done count toward involvement.
+  meetingList.filter(m => m.status!=='Cancelled' && m.status!=='Postponed').forEach(m => {
     const ids = new Set(m.attendeeIds||[]);
     if (m.organizerId) ids.add(m.organizerId);
     ids.forEach(empId => {
@@ -3362,7 +3386,7 @@ function meetingRow(m){
   const attendees = m.attendeeIds.map(id => DB.employees.find(e=>e.id===id)).filter(Boolean);
   const canEdit = isAdmin() || m.organizerId === currentUser().id;
   return '<div class="card" style="margin-bottom:10px'+(canEdit?';cursor:pointer':'')+'"'+(canEdit?' onclick="openEditMeeting(\''+m.id+'\')"':'')+'><div class="card-pad">' +
-    '<div class="flex-between" style="margin-bottom:6px"><span style="font-weight:800;font-size:13px">'+escHtml(m.title)+'</span>'+meetingTypePill(m.meetingType)+'</div>' +
+    '<div class="flex-between" style="margin-bottom:6px"><span style="font-weight:800;font-size:13px">'+escHtml(m.title)+'</span><span class="flex gap-6">'+meetingTypePill(m.meetingType)+meetingStatusPill(m.status)+'</span></div>' +
     '<div class="sub" style="margin-bottom:8px">'+fmtDate(m.meetingDate)+(m.startTime&&m.endTime?' · '+fmtTimeRange({startTime:m.startTime,endTime:m.endTime}):'')+(organizer?' · Organized by '+organizer.name:'')+'</div>' +
     (attendees.length ? '<div class="flex gap-6" style="flex-wrap:wrap">'+attendees.map(e=>avatar(e,22)).join('')+'</div>' : '') +
   '</div></div>';
