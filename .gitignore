@@ -4,4 +4,9 @@ dist/
 .env
 .env.*
 !.env.example
+# Not secrets - the public production API URL and OAuth Client ID - committed
+# so every frontend build defaults to them instead of silently falling back
+# to http://localhost:4000 or dropping the Google sign-in button when
+# nobody remembers to set VITE_API_URL / VITE_GOOGLE_CLIENT_ID.
+!frontend/.env.production
 coverage/
