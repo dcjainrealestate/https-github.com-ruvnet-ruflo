@@ -248,6 +248,9 @@
   .pill-urgent{background:var(--bad); color:#fff; animation:urgentPulse 2s ease-in-out infinite;}
   @keyframes urgentPulse{0%,100%{opacity:1;} 50%{opacity:.72;}}
   .pill-fixed{background:var(--neutral-soft); color:var(--neutral-status);}
+  .pill-technical{background:var(--info-soft); color:var(--info);}
+  .pill-strategic{background:var(--gold-soft); color:var(--gold);}
+  .pill-huddle{background:var(--good-soft); color:var(--good);}
   .level-bars{display:inline-flex; align-items:flex-end; gap:2px; height:12px; vertical-align:middle;}
   .level-bars i{width:3px; display:block; background:var(--border-strong); border-radius:1px;}
   .level-bars i:nth-child(1){height:4px;} .level-bars i:nth-child(2){height:7px;} .level-bars i:nth-child(3){height:10px;} .level-bars i:nth-child(4){height:13px;}
@@ -428,6 +431,7 @@ const DB = (function(){
   const departments = [];
   const projects = [];
   const tasks = [];
+  const meetings = [];
   const notifications = [];
   const notificationReads = [];
   // Whether the `recurrence` column exists yet on `tasks` — false until
@@ -445,6 +449,10 @@ const DB = (function(){
   // Whether the work start/end time columns exist yet on `tasks` (for
   // the Time Log work-hour monitoring page). Same approach as above.
   let workHoursSupported = true;
+  // Whether the `meetings` table exists yet — a dedicated table (not a
+  // tasks column) since a meeting has multiple attendees. Same
+  // graceful-degradation approach as above.
+  let meetingsSupported = true;
   const deptRows = [];   // internal {dbId, name} — departments/projects are
   const projRows = [];   // plain TEXT columns on tasks/employees, not FKs
 
@@ -485,6 +493,13 @@ const DB = (function(){
       isUrgent: !!row.is_urgent, urgencyReason: row.urgency_reason||'', scheduleType: row.schedule_type||'flexible',
       dailySequence: row.daily_sequence!=null ? row.daily_sequence : null,
       startTime: row.start_time||null, endTime: row.end_time||null, comments:[] };
+  }
+  function mapMeetingRow(row){
+    return { id:'M'+row.id, dbId:row.id, title:row.title, meetingType:row.meeting_type||'Team Huddle',
+      organizerId: row.organizer_id!=null ? 'E'+row.organizer_id : null,
+      attendeeIds: Array.isArray(row.attendee_ids) ? row.attendee_ids.map(x=>'E'+x) : [],
+      department: row.department||'', meetingDate: row.meeting_date, startTime: row.start_time||null, endTime: row.end_time||null,
+      agenda: row.agenda||'', createdAt: row.created_at };
   }
   function mapCommentRow(row){
     return { id:'C'+row.id, dbId:row.id, taskDbId:row.task_id, text:row.text, authorId: row.author_id!=null ? 'E'+row.author_id : null,
@@ -565,6 +580,19 @@ const DB = (function(){
       workHoursSupported = !error;
       if (error) console.warn('Work hours unavailable — run add_work_hours_columns.sql in Supabase to enable it.', error.message);
     } catch(e){ workHoursSupported = false; }
+
+    // Meetings live in their own table (a meeting has several attendees,
+    // unlike a task's single assignee) — degrade gracefully if it hasn't
+    // been created yet, same as notifications above.
+    try {
+      const { data, error } = await sb.from('meetings').select('*').order('id');
+      if (error) throw error;
+      meetingsSupported = true;
+      meetings.length = 0; meetings.push(...data.map(mapMeetingRow));
+    } catch(e){
+      meetingsSupported = false;
+      console.warn('Meetings unavailable — run add_meetings_table.sql in Supabase to enable it.', e && e.message);
+    }
   }
 
   function setupRealtime(onChange){
@@ -618,6 +646,15 @@ const DB = (function(){
           const i = projRows.findIndex(r => r.dbId === payload.new.id);
           if (i>-1){ projRows[i].name = payload.new.name; projRows[i].mascot = payload.new.mascot||DEFAULT_MASCOT; projects[i] = payload.new.name; }
           else { projRows.push({dbId:payload.new.id, name:payload.new.name, mascot:payload.new.mascot||DEFAULT_MASCOT}); projects.push(payload.new.name); }
+        }
+        onChange();
+      })
+      .on('postgres_changes', { event:'*', schema:'public', table:'meetings' }, payload => {
+        if (payload.eventType === 'DELETE'){ const i = meetings.findIndex(m=>m.dbId===payload.old.id); if (i>-1) meetings.splice(i,1); }
+        else {
+          const mapped = mapMeetingRow(payload.new);
+          const i = meetings.findIndex(m => m.dbId === mapped.dbId);
+          if (i>-1) Object.assign(meetings[i], mapped); else meetings.push(mapped);
         }
         onChange();
       })
@@ -717,6 +754,37 @@ const DB = (function(){
     tasks.splice(i,1);
     sb.from('tasks').delete().eq('id', dbId).then(({error}) => { if (error) showToast('Could not delete that task — check your connection'); });
   }
+  async function addMeeting(m){
+    const row = {
+      title:m.title, meeting_type:m.meetingType, organizer_id:rawId(m.organizerId),
+      attendee_ids:(m.attendeeIds||[]).map(rawId), department:m.department||null,
+      meeting_date:m.meetingDate, start_time:m.startTime||null, end_time:m.endTime||null, agenda:m.agenda||''
+    };
+    const { data, error } = await sb.from('meetings').insert(row).select().single();
+    if (error) throw error;
+    const mapped = mapMeetingRow(data);
+    meetings.push(mapped);
+    return mapped;
+  }
+  function updateMeeting(id, patch){
+    const m = meetings.find(x => x.id === id);
+    if (!m) return null;
+    Object.assign(m, patch);
+    const row = {
+      title:m.title, meeting_type:m.meetingType, organizer_id:rawId(m.organizerId),
+      attendee_ids:(m.attendeeIds||[]).map(rawId), department:m.department||null,
+      meeting_date:m.meetingDate, start_time:m.startTime||null, end_time:m.endTime||null, agenda:m.agenda||''
+    };
+    sb.from('meetings').update(row).eq('id', m.dbId).then(({error}) => { if (error) showToast('Could not save that meeting — check your connection'); });
+    return m;
+  }
+  function deleteMeeting(id){
+    const i = meetings.findIndex(x => x.id === id);
+    if (i === -1) return;
+    const dbId = meetings[i].dbId;
+    meetings.splice(i,1);
+    sb.from('meetings').delete().eq('id', dbId).then(({error}) => { if (error) showToast('Could not delete that meeting — check your connection'); });
+  }
   function addComment(taskId, text, authorId, type){
     const t = tasks.find(x => x.id === taskId);
     if (!t) return;
@@ -807,10 +875,11 @@ const DB = (function(){
   }
 
   function featureSupport(){
-    return { recurrence: recurrenceSupported, linkedTask: linkedTaskSupported, urgentWork: urgentFieldsSupported, workHours: workHoursSupported };
+    return { recurrence: recurrenceSupported, linkedTask: linkedTaskSupported, urgentWork: urgentFieldsSupported, workHours: workHoursSupported, meetings: meetingsSupported };
   }
-  return { employees, departments, projects, tasks, notifications, notificationReads,
+  return { employees, departments, projects, tasks, meetings, notifications, notificationReads,
     addEmployee, updateEmployee, addTask, updateTask, deleteTask, addComment,
+    addMeeting, updateMeeting, deleteMeeting,
     addProject, renameProject, addDepartment, renameDepartment,
     projectMascot, setProjectMascot,
     addNotification, markNotificationRead,
@@ -885,6 +954,10 @@ const MEMBER_STATUSES = ['Not Started','In Progress','On Hold'];
 const STATUS_CLASS = {'Not Started':'notstarted','In Progress':'inprogress','On Hold':'onhold','Pending Approval':'pendingapproval','Completed':'completed','Cancelled':'cancelled'};
 const PRIORITY_CLASS = {'Critical':'critical','High':'high','Medium':'medium','Low':'low'};
 const RECURRENCE_OPTIONS = [{value:'',label:'Does not repeat'},{value:'daily',label:'Daily'},{value:'weekly',label:'Weekly'},{value:'monthly',label:'Monthly'},{value:'yearly',label:'Yearly'}];
+// Meeting types drive the "who's spending time in which kind of meeting"
+// involvement analysis on the Meetings page.
+const MEETING_TYPES = ['Technical','Strategic','Team Huddle'];
+const MEETING_TYPE_CLASS = {'Technical':'technical','Strategic':'strategic','Team Huddle':'huddle'};
 const RECURRENCE_LABELS = {daily:'Daily', weekly:'Weekly', monthly:'Monthly', yearly:'Yearly'};
 
 function isOverdue(t){ return t.status !== 'Completed' && t.status !== 'Cancelled' && t.status !== 'Pending Approval' && t.dueDate < todayISO(); }
@@ -905,6 +978,7 @@ function statusPill(t){
   if (isOverdue(t)) html += ' <span class="pill pill-overdue">Overdue</span>';
   return html;
 }
+function meetingTypePill(type){ return '<span class="pill pill-'+(MEETING_TYPE_CLASS[type]||'huddle')+'">'+type+'</span>'; }
 function urgentBadge(t){ return t.isUrgent ? '<span class="pill pill-urgent">'+icon('alert',10)+' URGENT</span>' : ''; }
 function fixedBadge(t){ return t.scheduleType==='fixed' ? '<span class="pill pill-fixed">'+icon('calendar',10)+' Fixed</span>' : ''; }
 function levelBars(level){
@@ -1314,6 +1388,7 @@ const state = {
   dashboardMenuOpenId: null,
   dashboardRange: { preset:'thismonth', customStart: todayISO(), customEnd: todayISO() },
   timeLogDate: todayISO(),
+  meetingTypeFilter: 'All',
   toast: null
 };
 applyTheme(state.theme);
@@ -1334,6 +1409,13 @@ function visibleTasks(){
     return DB.tasks.filter(t => !hiddenIds.includes(t.assignedTo));
   }
   return DB.tasks;
+}
+function visibleMeetings(){
+  if (isAdmin() && !isSuperAdmin()){
+    const hiddenIds = DB.employees.filter(e => e.superAdmin).map(e => e.id);
+    return DB.meetings.filter(m => !hiddenIds.includes(m.organizerId));
+  }
+  return DB.meetings;
 }
 function canEditTask(t){ return isAdmin(); }
 function canUpdateProgress(t){
@@ -1528,6 +1610,7 @@ const NAV = [
   {id:'alltasks', label:'Team Tasks', icon:'list', roles:['admin']},
   {id:'projects', label:'Projects', icon:'folder', roles:['admin','member']},
   {id:'calendar', label:'Calendar', icon:'calendar', roles:['admin','member']},
+  {id:'meetings', label:'Meetings', icon:'message', roles:['admin','member']},
   {id:'files', label:'Files', icon:'download', roles:['admin','member']},
   {id:'timelog', label:'Time Log', icon:'clock', roles:['admin','member']},
   {id:'reports', label:'Reports', icon:'chart', roles:['admin','member']},
@@ -1783,6 +1866,7 @@ function renderView(u){
     case 'mytasks': return viewTaskList({ scope:'my' });
     case 'alltasks': return isAdmin() ? viewTaskList({ scope:'all' }) : viewDashboardMember(u);
     case 'calendar': return viewCalendar(u);
+    case 'meetings': return viewMeetings(u);
     case 'projects': return viewProjects();
     case 'files': return renderComingSoon('Files', 'A shared, searchable place for every attachment across your tasks and projects is coming in a later update.', 'folder');
     case 'timelog': return viewTimeLog(u);
@@ -2058,6 +2142,7 @@ function viewDashboardAdmin(){
         '<div><div style="font-weight:700;font-size:12.5px">'+weekday+'</div><div class="sub" style="margin-top:0">'+fmtDate(todayISO())+'</div></div>' +
       '</div>' +
       '<button class="btn btn-primary" onclick="openCreateTask()">'+icon('plus',14)+' Create Task</button>' +
+      '<button class="btn" onclick="openCreateMeeting()">'+icon('message',14)+' Add Meeting</button>' +
     '</div>' +
   '</div>' +
 
@@ -2152,7 +2237,7 @@ function viewMyDay(u){
   const nonEmpty = buckets.filter(b=>b.list.length);
   return '' +
   '<div class="page-head"><div><div class="page-title">My Day</div><div class="page-sub">Your work, automatically prioritized · '+fmtDate(todayISO())+'</div></div>' +
-    '<div class="page-actions"><button class="btn btn-primary" onclick="openCreateTask()">'+icon('plus',14)+' Create Task</button></div>' +
+    '<div class="page-actions"><button class="btn btn-primary" onclick="openCreateTask()">'+icon('plus',14)+' Create Task</button><button class="btn" onclick="openCreateMeeting()">'+icon('message',14)+' Add Meeting</button></div>' +
   '</div>' +
   (nonEmpty.length ? nonEmpty.map(b =>
     '<div class="card" style="margin-bottom:14px"><div class="card-head"><span class="card-title">'+b.label+'</span><span class="sub">'+b.list.length+' task'+(b.list.length===1?'':'s')+(b.draggable?' · drag '+icon('menu',10)+' to reorder':'')+'</span></div><div class="card-pad" style="padding-top:2px">' +
@@ -2239,6 +2324,7 @@ function myProjectsProgress(taskList){
 function myQuickActions(){
   return '<div class="quick-actions-grid">' +
     '<div class="quick-action-btn" onclick="openCreateTask()">'+icon('plus',18)+'Create Task</div>' +
+    '<div class="quick-action-btn" onclick="openCreateMeeting()">'+icon('message',18)+'Add Meeting</div>' +
     '<div class="quick-action-btn" onclick="setView(\'calendar\')">'+icon('calendar',18)+'Open Calendar</div>' +
     '<div class="quick-action-btn" onclick="setView(\'mytasks\')">'+icon('check',18)+'My Tasks</div>' +
     '<div class="quick-action-btn" onclick="setView(\'reports\')">'+icon('chart',18)+'My Reports</div>' +
@@ -2272,7 +2358,7 @@ function viewDashboardMember(u){
 
   return '' +
   '<div class="page-head"><div><div class="page-title">'+greeting()+', '+u.name.split(' ')[0]+'! 👋</div><div class="page-sub">"Plan today. Progress tomorrow." · '+fmtDate(todayISO())+' · '+u.department+'</div></div>' +
-    '<div class="page-actions"><button class="btn btn-primary" onclick="openCreateTask()">'+icon('plus',14)+' Create Task</button><button class="btn" onclick="setView(\'mytasks\')">'+icon('check',14)+' Go to My Tasks</button></div>' +
+    '<div class="page-actions"><button class="btn btn-primary" onclick="openCreateTask()">'+icon('plus',14)+' Create Task</button><button class="btn" onclick="openCreateMeeting()">'+icon('message',14)+' Add Meeting</button><button class="btn" onclick="setView(\'mytasks\')">'+icon('check',14)+' Go to My Tasks</button></div>' +
   '</div>' +
 
   (alerts.dueToday.length+alerts.overdue.length > 0 ?
@@ -2553,6 +2639,7 @@ function viewTaskList(opts){
   return '' +
   '<div class="page-head"><div><div class="page-title">'+(scope==='my'?'My Tasks':'Team Tasks')+'</div><div class="page-sub">'+(scope==='my'?(filtered.length+' of '+base.filter(t=>t.status!=='Completed').length+' active tasks'+(state.search?' · matching "'+escHtml(state.search)+'"':'')):'Track, manage and collaborate on your team\'s work.')+'</div></div>' +
     '<div class="page-actions">' + '<button class="btn btn-primary" onclick="openCreateTask()">'+icon('plus',14)+' Create Task</button>' +
+      '<button class="btn" onclick="openCreateMeeting()">'+icon('message',14)+' Add Meeting</button>' +
       '<button class="btn btn-sm btn-ghost" onclick="exportTaskCsv()">'+icon('download',13)+' Export CSV</button>' +
     '</div>' +
   '</div>' +
@@ -2866,6 +2953,7 @@ function renderModal(){
   if (m.type === 'employeeDetail') return renderEmployeeDetailModal(m.empId);
   if (m.type === 'sendNotification') return renderSendNotificationModal();
   if (m.type === 'resourceRequest') return renderResourceRequestModal(m.taskId);
+  if (m.type === 'meetingForm') return renderMeetingFormModal(m.meetingId);
   return '';
 }
 
@@ -3154,6 +3242,133 @@ async function saveTaskForm(id){
     } catch(e){ showToast('Could not save the task — check your connection and try again'); return; }
   }
   closeModal();
+}
+
+/* =====================================================================
+   MEETINGS — a dedicated record type (not a task) since a meeting has
+   several attendees instead of one assignee, and exists to answer "who
+   is spending time in which kind of meeting" rather than to be worked on.
+   ===================================================================== */
+function openCreateMeeting(){ state.modal = { type:'meetingForm', meetingId:null }; render(); }
+function openEditMeeting(id){ state.modal = { type:'meetingForm', meetingId:id, confirmDelete:false }; render(); }
+function renderMeetingFormModal(meetingId){
+  const m = meetingId ? DB.meetings.find(x => x.id===meetingId) : null;
+  const isEdit = !!m;
+  const activeEmps = visibleEmployees().filter(e => e.active);
+  const organizerName = isEdit ? (DB.employees.find(e=>e.id===m.organizerId)||{}).name : currentUser().name;
+  const attendeeIds = isEdit ? m.attendeeIds : [];
+  const support = DB.featureSupport();
+  return '<div class="modal-overlay" onclick="if(event.target===this) closeModal()"><div class="modal">' +
+    '<div class="modal-head"><h3>'+(isEdit?'Edit Meeting':'Add Meeting')+'</h3><span class="close-x" onclick="closeModal()">'+icon('x',15)+'</span></div>' +
+    '<div class="modal-body">' +
+      (!support.meetings ? '<div class="card-pad" style="background:var(--warn-soft);border-radius:var(--radius-sm);margin-bottom:14px;padding:10px 12px;font-size:12px;color:var(--warn)"><b>Heads up:</b> Meetings aren\'t saving to the database yet — a one-time update is needed (add_meetings_table.sql). Ask Claude to resend the SQL file if you need it again.</div>' : '') +
+      '<div class="field-row single"><div class="field-group"><label>Meeting Title</label><input id="mf-title" class="field" value="'+escAttr(m?m.title:'')+'" placeholder="e.g. Keystone Seasons — weekly sync" /></div></div>' +
+      '<div class="field-row">' +
+        '<div class="field-group"><label>Meeting Type</label><select id="mf-type">'+MEETING_TYPES.map(t=>'<option '+((m?m.meetingType:'Team Huddle')===t?'selected':'')+'>'+t+'</option>').join('')+'</select></div>' +
+        '<div class="field-group"><label>Department</label><select id="mf-dept">'+DB.departments.map(dpt=>'<option '+((m?m.department:currentUser().department)===dpt?'selected':'')+'>'+dpt+'</option>').join('')+'</select></div>' +
+      '</div>' +
+      '<div class="field-row">' +
+        '<div class="field-group"><label>Date</label><input id="mf-date" type="date" class="field" value="'+(m?m.meetingDate:todayISO())+'" /></div>' +
+        '<div class="field-group"><label>Organizer</label><input class="field" value="'+escAttr(organizerName)+'" disabled /></div>' +
+      '</div>' +
+      '<div class="field-row">' +
+        '<div class="field-group"><label>Start Time</label><input id="mf-start-time" type="time" class="field" value="'+escAttr(m?m.startTime||'':'')+'" /></div>' +
+        '<div class="field-group"><label>End Time</label><input id="mf-end-time" type="time" class="field" value="'+escAttr(m?m.endTime||'':'')+'" /></div>' +
+      '</div>' +
+      '<div class="field-row single"><div class="field-group"><label>Attendees</label>' +
+        '<div id="mf-attendees-box" style="max-height:160px;overflow-y:auto;border:1px solid var(--border);border-radius:9px;padding:8px">' +
+          activeEmps.map(e=>'<label class="flex gap-6" style="font-size:12.5px;font-weight:600;cursor:pointer;padding:5px 2px"><input type="checkbox" class="mf-attendee" value="'+e.id+'" '+(attendeeIds.includes(e.id)?'checked':'')+' /> '+escHtml(e.name)+' <span class="sub" style="margin-left:4px">'+escHtml(e.department)+'</span></label>').join('') +
+        '</div>' +
+      '</div></div>' +
+      '<div class="field-row single"><div class="field-group"><label>Agenda</label><textarea id="mf-agenda" class="field" rows="3" placeholder="What will this meeting cover?">'+escHtml(m?m.agenda:'')+'</textarea></div></div>' +
+    '</div>' +
+    '<div class="modal-foot">' +
+      (isEdit ? (state.modal.confirmDelete ?
+          '<span style="margin-right:auto;color:var(--bad);font-weight:700;font-size:12.5px;align-self:center">Delete this meeting?</span><button class="btn btn-sm btn-danger" onclick="DB.deleteMeeting(\''+m.id+'\');closeModal();showToast(\'Meeting deleted\');">Yes, delete</button><button class="btn btn-sm btn-ghost" onclick="state.modal.confirmDelete=false;render();">Cancel</button>'
+        : '<button class="btn btn-danger" style="margin-right:auto" onclick="state.modal.confirmDelete=true;render();">Delete Meeting</button>')
+      : '') +
+      (!(isEdit && state.modal.confirmDelete) ? ('<button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveMeetingForm('+(isEdit?"'"+m.id+"'":'null')+')">Save Meeting</button>') : '') +
+    '</div>' +
+  '</div></div>';
+}
+async function saveMeetingForm(id){
+  const title = document.getElementById('mf-title').value.trim();
+  if (!title){ flagFieldError('mf-title', 'Meeting title is required'); return; }
+  const meetingType = document.getElementById('mf-type').value;
+  const department = document.getElementById('mf-dept').value;
+  const meetingDate = document.getElementById('mf-date').value;
+  if (!meetingDate){ flagFieldError('mf-date', 'Date is required'); return; }
+  const startTime = document.getElementById('mf-start-time').value || null;
+  const endTime = document.getElementById('mf-end-time').value || null;
+  if (startTime && endTime && endTime <= startTime){ flagFieldError('mf-end-time', 'End time must be after the start time'); return; }
+  const attendeeIds = Array.from(document.querySelectorAll('.mf-attendee:checked')).map(el => el.value);
+  if (!attendeeIds.length){ flagFieldError('mf-attendees-box', 'Add at least one attendee'); return; }
+  const agenda = document.getElementById('mf-agenda').value.trim();
+
+  if (id){
+    DB.updateMeeting(id, { title, meetingType, department, meetingDate, startTime, endTime, attendeeIds, agenda });
+    showToast('Meeting updated');
+  } else {
+    try {
+      await DB.addMeeting({ title, meetingType, department, meetingDate, startTime, endTime, attendeeIds, agenda, organizerId: currentUser().id });
+      showToast('Meeting added');
+    } catch(e){ showToast('Could not save the meeting — check your connection and try again'); return; }
+  }
+  closeModal();
+}
+/* ---------- Meeting involvement — who is spending time in which kind of meeting ---------- */
+function meetingStatsByEmployee(meetingList){
+  const byEmp = {};
+  meetingList.forEach(m => {
+    const ids = new Set(m.attendeeIds||[]);
+    if (m.organizerId) ids.add(m.organizerId);
+    ids.forEach(empId => {
+      if (!byEmp[empId]) byEmp[empId] = { total:0, Technical:0, Strategic:0, 'Team Huddle':0 };
+      byEmp[empId].total++;
+      if (byEmp[empId][m.meetingType] != null) byEmp[empId][m.meetingType]++;
+    });
+  });
+  return byEmp;
+}
+function meetingInvolvementTable(meetingList, emps){
+  const stats = meetingStatsByEmployee(meetingList);
+  const rows = emps.map(e => ({ emp:e, s: stats[e.id] || { total:0, Technical:0, Strategic:0, 'Team Huddle':0 } }))
+    .filter(r => r.s.total > 0)
+    .sort((a,b) => b.s.total - a.s.total);
+  if (!rows.length) return '<div class="empty-state">No meeting activity yet.</div>';
+  return '<div class="table-wrap"><table><thead><tr><th>Employee</th><th>Total</th><th>Technical</th><th>Strategic</th><th>Team Huddle</th></tr></thead><tbody>' +
+    rows.map(r => '<tr class="row"><td class="flex gap-8">'+avatar(r.emp,22)+r.emp.name+'</td><td class="num" style="font-weight:800">'+r.s.total+'</td>' +
+      '<td class="num">'+r.s.Technical+'</td><td class="num">'+r.s.Strategic+'</td><td class="num">'+r.s['Team Huddle']+'</td></tr>').join('') +
+  '</tbody></table></div>';
+}
+function meetingRow(m){
+  const organizer = DB.employees.find(e=>e.id===m.organizerId);
+  const attendees = m.attendeeIds.map(id => DB.employees.find(e=>e.id===id)).filter(Boolean);
+  const canEdit = isAdmin() || m.organizerId === currentUser().id;
+  return '<div class="card" style="margin-bottom:10px'+(canEdit?';cursor:pointer':'')+'"'+(canEdit?' onclick="openEditMeeting(\''+m.id+'\')"':'')+'><div class="card-pad">' +
+    '<div class="flex-between" style="margin-bottom:6px"><span style="font-weight:800;font-size:13px">'+escHtml(m.title)+'</span>'+meetingTypePill(m.meetingType)+'</div>' +
+    '<div class="sub" style="margin-bottom:8px">'+fmtDate(m.meetingDate)+(m.startTime&&m.endTime?' · '+fmtTimeRange({startTime:m.startTime,endTime:m.endTime}):'')+(organizer?' · Organized by '+organizer.name:'')+'</div>' +
+    (attendees.length ? '<div class="flex gap-6" style="flex-wrap:wrap">'+attendees.map(e=>avatar(e,22)).join('')+'</div>' : '') +
+  '</div></div>';
+}
+function setMeetingTypeFilter(v){ state.meetingTypeFilter = v; render(); }
+function viewMeetings(u){
+  const scope = isAdmin() ? visibleMeetings() : visibleMeetings().filter(m => m.organizerId===u.id || m.attendeeIds.includes(u.id));
+  const f = state.meetingTypeFilter || 'All';
+  const filtered = (f==='All' ? scope : scope.filter(m=>m.meetingType===f)).slice().sort((a,b)=> a.meetingDate<b.meetingDate?1:-1);
+  const emps = isAdmin() ? visibleEmployees().filter(e=>e.active) : [u];
+  const support = DB.featureSupport();
+  return '<div class="page-head"><div><div class="page-title">Meetings</div><div class="page-sub">'+(isAdmin()?'Every meeting across the team, and who\'s spending time where.':'Meetings you\'re organizing or attending.')+'</div></div>' +
+    '<div class="page-actions"><button class="btn btn-primary" onclick="openCreateMeeting()">'+icon('plus',14)+' Add Meeting</button></div>' +
+  '</div>' +
+  (!support.meetings ? '<div class="card card-pad" style="margin-bottom:16px;background:var(--warn-soft);color:var(--warn);font-size:12.5px"><b>Heads up:</b> meetings aren\'t saving to the database yet — a one-time update is needed (add_meetings_table.sql).</div>' : '') +
+  '<div class="card" style="margin-bottom:16px"><div class="card-head"><span class="card-title">Meeting Involvement</span><span class="sub">'+(isAdmin()?'this list, all time':'your meetings')+'</span></div><div class="card-pad" style="padding-top:0">' +
+    meetingInvolvementTable(scope, emps) +
+  '</div></div>' +
+  '<div class="flex gap-6" style="padding:0 0 12px;flex-wrap:wrap">' +
+    ['All'].concat(MEETING_TYPES).map(t => '<span class="chip-filter '+(f===t?'active':'')+'" onclick="setMeetingTypeFilter(\''+t+'\')">'+t+'</span>').join('') +
+  '</div>' +
+  (filtered.length ? filtered.map(meetingRow).join('') : '<div class="card card-pad"><div class="empty-state">No meetings'+(f==='All'?'':' of this type')+' yet.</div></div>');
 }
 
 /* ---- Task Detail (progress, status, comments, completion) ---- */
