@@ -3312,7 +3312,19 @@ async function saveMeetingForm(id){
     try {
       await DB.addMeeting({ title, meetingType, department, meetingDate, startTime, endTime, attendeeIds, agenda, organizerId: currentUser().id });
       showToast('Meeting added');
-    } catch(e){ showToast('Could not save the meeting — check your connection and try again'); return; }
+    } catch(e){
+      console.error('Could not save meeting', e);
+      const msg = (e && e.message) || '';
+      // A missing/not-yet-cached table reads very differently from an
+      // actual network failure — say so, instead of blaming the internet
+      // connection when the real fix is running add_meetings_table.sql.
+      if (/schema cache|does not exist|PGRST20|relation .* does not exist/i.test(msg)){
+        showToast('Could not save — the meetings table isn\'t set up yet. Run add_meetings_table.sql in Supabase, then reload this page.');
+      } else {
+        showToast('Could not save the meeting — check your connection and try again');
+      }
+      return;
+    }
   }
   closeModal();
 }
