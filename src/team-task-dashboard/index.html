@@ -333,7 +333,7 @@
   .alert-row{display:flex; align-items:center; gap:10px; padding:9px 12px; border-radius:8px; font-size:12.5px; font-weight:600; cursor:pointer; transition:background .15s var(--ease);}
   .alert-row:hover{background:var(--surface-2);}
   .alert-ico{width:26px; height:26px; border-radius:7px; display:flex; align-items:center; justify-content:center; font-size:13px; flex:0 0 auto;}
-  .toast{position:fixed; bottom:20px; right:20px; background:var(--ink); color:var(--bg); padding:11px 16px; border-radius:11px; font-size:13px; font-weight:700; box-shadow:0 14px 34px rgba(0,0,0,.3); z-index:200; animation:pop .16s var(--ease);}
+  .toast{position:fixed; bottom:20px; right:20px; max-width:min(420px, calc(100vw - 40px)); background:var(--ink); color:var(--bg); padding:11px 16px; border-radius:11px; font-size:13px; font-weight:700; box-shadow:0 14px 34px rgba(0,0,0,.3); z-index:200; animation:pop .16s var(--ease); word-wrap:break-word;}
   .notif-panel{position:absolute; top:44px; right:0; width:320px; background:var(--surface-modal); backdrop-filter:var(--glass-blur); -webkit-backdrop-filter:var(--glass-blur); border:1px solid var(--border); border-radius:14px; box-shadow:var(--shadow); z-index:50; overflow:hidden;}
   .notif-item{padding:11px 14px; border-bottom:1px solid var(--border); font-size:12.5px;}
   .notif-item:last-child{border-bottom:none;}
@@ -1426,11 +1426,11 @@ function canUpdateProgress(t){
 }
 
 let toastTimer = null;
-function showToast(msg){
+function showToast(msg, ms){
   state.toast = msg;
   render();
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { state.toast = null; render(); }, 2600);
+  toastTimer = setTimeout(() => { state.toast = null; render(); }, ms || 2600);
 }
 
 /* ---------- alert sound + browser notification popup ---------- */
@@ -3319,9 +3319,13 @@ async function saveMeetingForm(id){
       // actual network failure — say so, instead of blaming the internet
       // connection when the real fix is running add_meetings_table.sql.
       if (/schema cache|does not exist|PGRST20|relation .* does not exist/i.test(msg)){
-        showToast('Could not save — the meetings table isn\'t set up yet. Run add_meetings_table.sql in Supabase, then reload this page.');
+        showToast('Could not save — the meetings table isn\'t set up yet. Run add_meetings_table.sql in Supabase, then reload this page.', 9000);
+      } else if (msg){
+        // Surface the real database error directly — this is the fastest
+        // way to diagnose a save failure without needing DevTools.
+        showToast('Could not save the meeting: ' + msg, 9000);
       } else {
-        showToast('Could not save the meeting — check your connection and try again');
+        showToast('Could not save the meeting — check your connection and try again', 9000);
       }
       return;
     }
