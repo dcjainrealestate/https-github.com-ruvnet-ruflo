@@ -1066,6 +1066,9 @@ function avatar(emp, size){
 function tasksForEmployeeInMonth(empId, y, m){
   return DB.tasks.filter(t => t.assignedTo === empId && t.dueDate && sameMonth(t.dueDate, y, m));
 }
+function meetingsForEmployeeInMonth(empId, y, m){
+  return DB.meetings.filter(mt => mt.meetingDate && sameMonth(mt.meetingDate, y, m) && (mt.organizerId===empId || mt.attendeeIds.includes(empId)));
+}
 
 function computeStats(taskList){
   const completed = taskList.filter(t => t.status === 'Completed');
@@ -2197,7 +2200,10 @@ function viewDashboardAdmin(){
 }
 /* ---------- My Day — urgent-first smart ordering (sections 43/44) ---------- */
 function myDayBuckets(taskList){
-  const pool = taskList.filter(t => t.status!=='Completed' && t.status!=='Cancelled');
+  // My Day is this day's work, not the whole backlog — scope everything
+  // below to tasks due today or earlier (overdue). Anything due later
+  // stays off this page until its own day.
+  const pool = taskList.filter(t => t.status!=='Completed' && t.status!=='Cancelled' && t.dueDate<=todayISO());
   const used = new Set();
   function take(pred){ const list = pool.filter(t => !used.has(t.id) && pred(t)); list.forEach(t=>used.add(t.id)); return list; }
   const byDue = (a,b)=> a.dueDate<b.dueDate?-1:(a.dueDate>b.dueDate?1:0);
@@ -2249,19 +2255,27 @@ function myDayRow(t, draggable){
     urgentBadge(t) + fixedBadge(t) + priorityPill(t.priority) +
   '</div>';
 }
+function myDayMeetings(u){
+  return visibleMeetings().filter(m => (m.organizerId===u.id || m.attendeeIds.includes(u.id)) && m.meetingDate===todayISO() && m.status!=='Cancelled')
+    .sort((a,b) => (a.startTime||'')<(b.startTime||'')?-1:1);
+}
 function viewMyDay(u){
   const myTasks = DB.tasks.filter(t => t.assignedTo===u.id);
   const buckets = myDayBuckets(myTasks);
   const nonEmpty = buckets.filter(b=>b.list.length);
+  const todaysMeetings = myDayMeetings(u);
   return '' +
   '<div class="page-head"><div><div class="page-title">My Day</div><div class="page-sub">Your work, automatically prioritized · '+fmtDate(todayISO())+'</div></div>' +
     '<div class="page-actions"><button class="btn btn-primary" onclick="openCreateTask()">'+icon('plus',14)+' Create Task</button><button class="btn" onclick="openCreateMeeting()">'+icon('message',14)+' Add Meeting</button></div>' +
   '</div>' +
+  (todaysMeetings.length ? '<div class="card" style="margin-bottom:14px"><div class="card-head"><span class="card-title">📅 Meetings Today</span><span class="sub">'+todaysMeetings.length+' meeting'+(todaysMeetings.length===1?'':'s')+'</span></div><div class="card-pad" style="padding-top:2px">' +
+    todaysMeetings.map(meetingRow).join('') +
+  '</div></div>' : '') +
   (nonEmpty.length ? nonEmpty.map(b =>
     '<div class="card" style="margin-bottom:14px"><div class="card-head"><span class="card-title">'+b.label+'</span><span class="sub">'+b.list.length+' task'+(b.list.length===1?'':'s')+(b.draggable?' · drag '+icon('menu',10)+' to reorder':'')+'</span></div><div class="card-pad" style="padding-top:2px">' +
       b.list.map(t => myDayRow(t, b.draggable)).join('') +
     '</div></div>'
-  ).join('') : '<div class="card card-pad"><div class="empty-state">Nothing on your plate today. Enjoy the calm! 🎉</div></div>');
+  ).join('') : (todaysMeetings.length ? '' : '<div class="card card-pad"><div class="empty-state">Nothing on your plate today. Enjoy the calm! 🎉</div></div>'));
 }
 function priorityRow(t){
   const emp = DB.employees.find(e=>e.id===t.assignedTo);
@@ -3381,6 +3395,14 @@ function meetingInvolvementTable(meetingList, emps){
       '<td class="num">'+r.s.Technical+'</td><td class="num">'+r.s.Strategic+'</td><td class="num">'+r.s['Team Huddle']+'</td></tr>').join('') +
   '</tbody></table></div>';
 }
+function myMeetingSummaryCard(empId, meetingList, periodLabel){
+  const stats = meetingStatsByEmployee(meetingList)[empId] || { total:0, Technical:0, Strategic:0, 'Team Huddle':0 };
+  return '<div class="card" style="margin-bottom:16px"><div class="card-head"><span class="card-title">Meeting Involvement</span><span class="sub">'+periodLabel+'</span></div><div class="card-pad">' +
+    '<div class="grid grid-kpi">' +
+      kpiTile('Total Meetings', stats.total) + kpiTile('Technical', stats.Technical) + kpiTile('Strategic', stats.Strategic) + kpiTile('Team Huddle', stats['Team Huddle']) +
+    '</div>' +
+  '</div></div>';
+}
 function meetingRow(m){
   const organizer = DB.employees.find(e=>e.id===m.organizerId);
   const attendees = m.attendeeIds.map(id => DB.employees.find(e=>e.id===id)).filter(Boolean);
@@ -3647,6 +3669,10 @@ function viewReports(u){
       (rows.length ? leaderboardTable(rows) : '<div class="empty-state">No matching task activity for this period.</div>') +
     '</div></div>' +
 
+    '<div class="card" style="margin-bottom:16px"><div class="card-head"><span class="card-title">Meeting Involvement</span><span class="sub">'+monthLabel(r.year,r.month)+' · who\'s in more meetings, and which kind</span></div><div class="card-pad" style="padding-top:0">' +
+      meetingInvolvementTable(visibleMeetings().filter(m => sameMonth(m.meetingDate, r.year, r.month)), visibleEmployees().filter(e=>e.active)) +
+    '</div></div>' +
+
     (selected ? employeeReportPanel(selected, r) : '') +
 
     '<div class="card" style="margin-bottom:16px"><div class="card-head"><span class="card-title">Month-over-Month Comparison</span>' +
@@ -3746,6 +3772,7 @@ function viewReportsMember(u){
   return '<div class="page-head"><div><div class="page-title">My Performance Report</div><div class="page-sub">Your monthly efficiency, transparently calculated</div></div>' +
     '<div class="page-actions">' + periodSelect('rp', r.year, r.month, 'setReportPeriod') + '</div></div>' +
     employeeReportPanel({employee:u, stats}, r) +
+    myMeetingSummaryCard(u.id, meetingsForEmployeeInMonth(u.id, r.year, r.month), monthLabel(r.year, r.month)) +
     '<div class="card"><div class="card-head"><span class="card-title">Month-over-Month</span>' +
       '<label class="flex gap-6" style="font-size:12px;font-weight:700;cursor:pointer"><input type="checkbox" '+(r.compareMode?'checked':'')+' onchange="toggleCompareMode()" /> Enable</label>' +
     '</div><div class="card-pad">' +
@@ -3825,6 +3852,7 @@ function renderEmployeeDetailModal(empId){
         '</div><div class="divider"></div><div style="font-size:12.5px"><b>Manager recommendation:</b> '+ai.recommendation+'</div>' +
       '</div>'
     ) : '') +
+    myMeetingSummaryCard(e.id, meetingsForEmployeeInMonth(e.id, now.getFullYear(), now.getMonth()), monthLabel(now.getFullYear(), now.getMonth())) +
     '<div class="card-title-sm" style="margin-bottom:6px">Recent Tasks</div>' +
     '<div class="table-wrap"><table><thead><tr><th>Task</th><th>Project</th><th>Priority</th><th>Due</th><th>Status</th></tr></thead><tbody>' +
       (allTasks.length ? allTasks.map(t=>'<tr class="row"><td class="task-name-cell" onclick="closeModal();openTaskDetail(\''+t.id+'\')">'+t.name+'</td><td>'+t.project+'</td><td>'+priorityPill(t.priority)+'</td><td class="num">'+fmtDateShort(t.dueDate)+'</td><td>'+statusPill(t)+'</td></tr>').join('') : '<tr><td colspan="5" class="empty-state">No tasks assigned yet.</td></tr>') +
