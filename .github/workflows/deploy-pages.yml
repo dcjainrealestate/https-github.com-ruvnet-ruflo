@@ -3,7 +3,7 @@ name: Deploy Taskframe to GitHub Pages
 on:
   push:
     branches: [ claude/team-task-dashboard-oz24lm ]
-    paths: [ 'src/team-task-dashboard/index.html', 'src/team-task-dashboard/assets/**' ]
+    paths: [ 'src/team-task-dashboard/index.html', 'src/team-task-dashboard/assets/**', 'src/team-task-dashboard/manifest.json', 'src/team-task-dashboard/service-worker.js' ]
   workflow_dispatch:
 
 permissions:
@@ -28,6 +28,8 @@ jobs:
           mkdir -p _site/assets
           cp src/team-task-dashboard/index.html _site/index.html
           if [ -d src/team-task-dashboard/assets ]; then cp -r src/team-task-dashboard/assets/. _site/assets/; fi
+          if [ -f src/team-task-dashboard/manifest.json ]; then cp src/team-task-dashboard/manifest.json _site/manifest.json; fi
+          if [ -f src/team-task-dashboard/service-worker.js ]; then cp src/team-task-dashboard/service-worker.js _site/service-worker.js; fi
       - uses: actions/configure-pages@v5
         with:
           enablement: true
