@@ -982,6 +982,13 @@ const RECURRENCE_OPTIONS = [{value:'',label:'Does not repeat'},{value:'daily',la
 // involvement analysis on the Meetings page.
 const MEETING_TYPES = ['Technical','Strategic','Team Huddle'];
 const MEETING_TYPE_CLASS = {'Technical':'technical','Strategic':'strategic','Team Huddle':'huddle'};
+// How heavily each meeting type counts toward the Meeting Contribution
+// component of the Efficiency Score (see computeStats) — strategic
+// involvement counts for the most, routine huddles for the least.
+const MEETING_WEIGHT = {'Strategic':4, 'Technical':2, 'Team Huddle':1};
+// Weighted meeting points in a month that earn full (100%) Meeting
+// Contribution credit — e.g. 5 Strategic meetings (5*4=20) maxes it out.
+const MEETING_CONTRIBUTION_CAP = 20;
 // Disposition — what actually happened to a scheduled meeting. Cancelled
 // and Postponed meetings are excluded from the involvement analysis since
 // they didn't actually consume anyone's time.
@@ -1082,7 +1089,7 @@ function meetingsForEmployeeInMonth(empId, y, m){
   return DB.meetings.filter(mt => mt.meetingDate && sameMonth(mt.meetingDate, y, m) && (mt.organizerId===empId || mt.attendeeIds.includes(empId)));
 }
 
-function computeStats(taskList){
+function computeStats(taskList, meetings){
   const completed = taskList.filter(t => t.status === 'Completed');
   const cancelled = taskList.filter(t => t.status === 'Cancelled');
   const pendingApproval = taskList.filter(t => t.status === 'Pending Approval');
@@ -1115,13 +1122,28 @@ function computeStats(taskList){
     const cov = mean > 0 ? sd/mean : 0;
     consistency = Math.max(0, Math.min(100, 100 - cov*60));
   }
-  const efficiency = completionRate*0.30 + onTimeRate*0.30 + difficultyScore*0.20 + deadlineDiscipline*0.10 + consistency*0.10;
+  // Meeting Contribution — optional 6th component. Only applied when a
+  // `meetings` list is passed in (always the case for a single employee;
+  // omitted for project/company aggregates spanning multiple people,
+  // where there's no one person's meeting load to attribute it to).
+  // Cancelled/Postponed meetings never happened, so they don't count —
+  // same rule as the Meeting Involvement table elsewhere in the app.
+  let meetingContribution = null, meetingPoints = 0;
+  let efficiency;
+  if (meetings){
+    const counted = meetings.filter(m => m.status!=='Cancelled' && m.status!=='Postponed');
+    meetingPoints = counted.reduce((s,m) => s + (MEETING_WEIGHT[m.meetingType]||0), 0);
+    meetingContribution = Math.min(100, meetingPoints / MEETING_CONTRIBUTION_CAP * 100);
+    efficiency = completionRate*0.24 + onTimeRate*0.24 + difficultyScore*0.16 + deadlineDiscipline*0.08 + consistency*0.08 + meetingContribution*0.20;
+  } else {
+    efficiency = completionRate*0.30 + onTimeRate*0.30 + difficultyScore*0.20 + deadlineDiscipline*0.10 + consistency*0.10;
+  }
 
   return {
     assigned: taskList.length, activeAssigned, completed: completed.length, cancelled: cancelled.length,
     overdue: overdue.length, inProgress: inProgress.length, onHold: onHold.length, notStarted: notStarted.length,
     pending: pending.length, pendingApproval: pendingApproval.length, completionRate, onTimeRate, taskPoints, maxPoints, difficultyScore,
-    deadlineDiscipline, consistency, efficiency, weekly
+    deadlineDiscipline, consistency, meetingContribution, meetingPoints, efficiency, weekly
   };
 }
 
@@ -1138,7 +1160,7 @@ function companyStats(taskList){
   const avgCompletionDays = durations.length ? (durations.reduce((a,b)=>a+b,0)/durations.length) : 0;
   const today = todayDate();
   const members = DB.employees.filter(e => e.role === 'member' && e.active);
-  const effs = members.map(e => computeStats(tasksForEmployeeInMonth(e.id, today.getFullYear(), today.getMonth())).efficiency);
+  const effs = members.map(e => computeStats(tasksForEmployeeInMonth(e.id, today.getFullYear(), today.getMonth()), meetingsForEmployeeInMonth(e.id, today.getFullYear(), today.getMonth())).efficiency);
   const teamEfficiency = effs.length ? effs.reduce((a,b)=>a+b,0)/effs.length : 0;
   return {
     total: all.length, completed: completed.length, inProgress: inProgress.length, pending: pending.length,
@@ -1308,13 +1330,13 @@ function leaderboard(y, m, opts){
     let list = tasksForEmployeeInMonth(e.id, y, m);
     if (opts.project && opts.project !== 'All') list = list.filter(t => t.project === opts.project);
     if (opts.level && opts.level !== 'All') list = list.filter(t => t.level === Number(opts.level));
-    return { employee: e, stats: computeStats(list) };
+    return { employee: e, stats: computeStats(list, meetingsForEmployeeInMonth(e.id, y, m)) };
   }).sort((a,b) => b.stats.efficiency - a.stats.efficiency);
 }
 
 function momCompare(empId, y1, m1, y2, m2){
-  const s1 = computeStats(tasksForEmployeeInMonth(empId, y1, m1));
-  const s2 = computeStats(tasksForEmployeeInMonth(empId, y2, m2));
+  const s1 = computeStats(tasksForEmployeeInMonth(empId, y1, m1), meetingsForEmployeeInMonth(empId, y1, m1));
+  const s2 = computeStats(tasksForEmployeeInMonth(empId, y2, m2), meetingsForEmployeeInMonth(empId, y2, m2));
   function pct(a,b){ if (Math.abs(a) < 0.001) return b===0 ? 0 : 100; return ((b-a)/a*100); }
   return {
     prev:{year:y1, month:m1, stats:s1}, curr:{year:y2, month:m2, stats:s2},
@@ -1351,12 +1373,16 @@ function aiSummary(emp, stats, mom){
   } else {
     parts.push('No tasks were completed by ' + name + ' this month.');
   }
+  if (stats.meetingContribution != null && stats.meetingPoints > 0){
+    parts.push(name + ' also earned ' + Math.round(stats.meetingContribution) + '% meeting-contribution credit this month, weighted toward strategic involvement.');
+  }
 
   const strengths = [], improve = [];
   if (stats.onTimeRate >= 85) strengths.push('Strong deadline management');
   if (stats.completionRate >= 85) strengths.push('High completion rate');
   if (stats.difficultyScore >= 65) strengths.push('Consistently takes on higher-complexity work');
   if (stats.consistency >= 75) strengths.push('Steady output spread across the month');
+  if (stats.meetingContribution != null && stats.meetingContribution >= 65) strengths.push('Heavily involved in strategic/technical meetings');
   if (strengths.length === 0) strengths.push('Maintains baseline task throughput');
 
   if (stats.overdue > 0) improve.push('Reduce overdue tasks (' + stats.overdue + ' this month)');
@@ -1952,19 +1978,21 @@ function breakdownRow(label, value, weightLabel){
     '<span class="v num">'+Math.round(value)+'%</span></div>';
 }
 function efficiencyBreakdownCard(stats){
+  const hasMeetings = stats.meetingContribution != null;
   return '<div class="stack">' +
-    breakdownRow('Completion Rate', stats.completionRate, '30%') +
-    breakdownRow('On-Time Completion', stats.onTimeRate, '30%') +
-    breakdownRow('Task Difficulty', stats.difficultyScore, '20%') +
-    breakdownRow('Deadline Discipline', stats.deadlineDiscipline, '10%') +
-    breakdownRow('Consistency', stats.consistency, '10%') +
+    breakdownRow('Completion Rate', stats.completionRate, hasMeetings?'24%':'30%') +
+    breakdownRow('On-Time Completion', stats.onTimeRate, hasMeetings?'24%':'30%') +
+    breakdownRow('Task Difficulty', stats.difficultyScore, hasMeetings?'16%':'20%') +
+    breakdownRow('Deadline Discipline', stats.deadlineDiscipline, hasMeetings?'8%':'10%') +
+    breakdownRow('Consistency', stats.consistency, hasMeetings?'8%':'10%') +
+    (hasMeetings ? breakdownRow('Meeting Contribution', stats.meetingContribution, '20%') : '') +
   '</div>';
 }
 function employeeCard(emp, opts){
   opts = opts || {};
   const now = todayDate();
   const list = tasksForEmployeeInMonth(emp.id, now.getFullYear(), now.getMonth());
-  const stats = computeStats(list);
+  const stats = computeStats(list, meetingsForEmployeeInMonth(emp.id, now.getFullYear(), now.getMonth()));
   const active = DB.tasks.filter(t => t.assignedTo===emp.id && t.status!=='Completed' && t.status!=='Cancelled');
   return '<div class="card card-pad" style="cursor:pointer" onclick="openEmployeeDetail(\''+emp.id+'\')">' +
     '<div class="flex gap-10" style="margin-bottom:10px">' + avatar(emp,38) +
@@ -2394,7 +2422,7 @@ function viewDashboardMember(u){
   const now = todayDate();
   const myTasks = DB.tasks.filter(t => t.assignedTo===u.id);
   const monthTasks = tasksForEmployeeInMonth(u.id, now.getFullYear(), now.getMonth());
-  const stats = computeStats(monthTasks);
+  const stats = computeStats(monthTasks, meetingsForEmployeeInMonth(u.id, now.getFullYear(), now.getMonth()));
   const alerts = computeAlerts(myTasks);
   const todayTasks = myTasks.filter(t => t.status!=='Completed' && t.status!=='Cancelled' && (t.dueDate<=todayISO()) ).sort((a,b)=>a.dueDate<b.dueDate?-1:1).slice(0,6);
   const upcoming = myTasks.filter(t => t.status!=='Completed' && t.status!=='Cancelled' && t.dueDate>todayISO() && t.dueDate<=addDaysISO(todayISO(),7)).sort((a,b)=>a.dueDate<b.dueDate?-1:1);
@@ -2563,7 +2591,7 @@ function filterBarAndTable(base, filtered, scope, f){
 function teamWorkloadTable(members){
   if (!members.length) return '<div class="empty-state">No team members yet.</div>';
   const now = todayDate();
-  const rows = members.map(e => ({ emp:e, stats: computeStats(tasksForEmployeeInMonth(e.id, now.getFullYear(), now.getMonth())) }));
+  const rows = members.map(e => ({ emp:e, stats: computeStats(tasksForEmployeeInMonth(e.id, now.getFullYear(), now.getMonth()), meetingsForEmployeeInMonth(e.id, now.getFullYear(), now.getMonth())) }));
   return '<div class="table-wrap"><table><thead><tr><th>Team Member</th><th>Assigned</th><th>Completed</th><th>In Progress</th><th>Pending</th><th>Overdue</th><th>Completion</th></tr></thead><tbody>' +
     rows.map(r => '<tr class="row" onclick="openEmployeeDetail(\''+r.emp.id+'\')"><td class="flex gap-8" style="font-weight:700">'+avatar(r.emp,24)+r.emp.name+'</td>' +
       '<td class="num">'+r.stats.assigned+'</td><td class="num" style="color:var(--good);font-weight:700">'+r.stats.completed+'</td>' +
@@ -2895,7 +2923,7 @@ function deactivateButtonInline(e){
 }
 function teamRow(e){
   const now = todayDate();
-  const stats = computeStats(tasksForEmployeeInMonth(e.id, now.getFullYear(), now.getMonth()));
+  const stats = computeStats(tasksForEmployeeInMonth(e.id, now.getFullYear(), now.getMonth()), meetingsForEmployeeInMonth(e.id, now.getFullYear(), now.getMonth()));
   const active = DB.tasks.filter(t => t.assignedTo===e.id && t.status!=='Completed' && t.status!=='Cancelled').length;
   const totalCompleted = DB.tasks.filter(t => t.assignedTo===e.id && t.status==='Completed').length;
   return '<tr class="row">' +
@@ -3777,7 +3805,7 @@ function momTile(label, prev, curr, delta, deltaPct, isCount, invertGood){
 /* ---- Member's own report ---- */
 function viewReportsMember(u){
   const r = state.report;
-  const stats = computeStats(tasksForEmployeeInMonth(u.id, r.year, r.month));
+  const stats = computeStats(tasksForEmployeeInMonth(u.id, r.year, r.month), meetingsForEmployeeInMonth(u.id, r.year, r.month));
   const ai = aiSummary(u, stats, null);
   let mom = null;
   if (r.compareMode) mom = momCompare(u.id, r.cYear!=null?r.cYear:prevMonth(r.year,r.month).y, r.cMonth!=null?r.cMonth:prevMonth(r.year,r.month).m, r.year, r.month);
@@ -3840,7 +3868,7 @@ function renderEmployeeDetailModal(empId){
   const e = DB.employees.find(x => x.id===empId);
   if (!e) return '';
   const now = todayDate();
-  const stats = computeStats(tasksForEmployeeInMonth(e.id, now.getFullYear(), now.getMonth()));
+  const stats = computeStats(tasksForEmployeeInMonth(e.id, now.getFullYear(), now.getMonth()), meetingsForEmployeeInMonth(e.id, now.getFullYear(), now.getMonth()));
   const allTasks = DB.tasks.filter(t => t.assignedTo===e.id).sort((a,b)=> a.dueDate<b.dueDate?1:-1).slice(0,10);
   const ai = aiSummary(e, stats, null);
   return '<div class="modal-overlay" onclick="if(event.target===this) closeModal()"><div class="modal wide">' +
