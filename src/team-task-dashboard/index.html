@@ -1063,7 +1063,8 @@ function icon(name, size){
     menu:'<line x1="2.5" y1="4.5" x2="13.5" y2="4.5"/><line x1="2.5" y1="8" x2="13.5" y2="8"/><line x1="2.5" y1="11.5" x2="13.5" y2="11.5"/>',
     sun:'<circle cx="8" cy="8" r="3"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.5 3.5l1.4 1.4M11.1 11.1l1.4 1.4M3.5 12.5l1.4-1.4M11.1 4.9l1.4-1.4"/>',
     moon:'<path d="M13.5 9.6A5.8 5.8 0 0 1 6.4 2.5a5.8 5.8 0 1 0 7.1 7.1z"/>',
-    kebab:'<circle cx="8" cy="3.2" r="1.15" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r="1.15" fill="currentColor" stroke="none"/><circle cx="8" cy="12.8" r="1.15" fill="currentColor" stroke="none"/>'
+    kebab:'<circle cx="8" cy="3.2" r="1.15" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r="1.15" fill="currentColor" stroke="none"/><circle cx="8" cy="12.8" r="1.15" fill="currentColor" stroke="none"/>',
+    camera:'<path d="M2 5.5a1 1 0 0 1 1-1h1.8l.8-1.3h4.8l.8 1.3H13a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5.5z"/><circle cx="8" cy="8.5" r="2.6"/>'
   };
   return '<svg width="'+size+'" height="'+size+'" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">'+(paths[name]||'')+'</svg>';
 }
@@ -2204,6 +2205,7 @@ function viewDashboardAdmin(){
       '</div>' +
       '<button class="btn btn-primary" onclick="openCreateTask()">'+icon('plus',14)+' Create Task</button>' +
       '<button class="btn" onclick="openCreateMeeting()">'+icon('message',14)+' Add Meeting</button>' +
+      '<button class="btn" onclick="openPhotoImport()">'+icon('camera',14)+' Add from Photo</button>' +
     '</div>' +
   '</div>' +
 
@@ -2306,7 +2308,7 @@ function viewMyDay(u){
   const todaysMeetings = myDayMeetings(u);
   return '' +
   '<div class="page-head"><div><div class="page-title">My Day</div><div class="page-sub">Your work, automatically prioritized · '+fmtDate(todayISO())+'</div></div>' +
-    '<div class="page-actions"><button class="btn btn-primary" onclick="openCreateTask()">'+icon('plus',14)+' Create Task</button><button class="btn" onclick="openCreateMeeting()">'+icon('message',14)+' Add Meeting</button></div>' +
+    '<div class="page-actions"><button class="btn btn-primary" onclick="openCreateTask()">'+icon('plus',14)+' Create Task</button><button class="btn" onclick="openCreateMeeting()">'+icon('message',14)+' Add Meeting</button><button class="btn" onclick="openPhotoImport()">'+icon('camera',14)+' Add from Photo</button></div>' +
   '</div>' +
   (todaysMeetings.length ? '<div class="card" style="margin-bottom:14px"><div class="card-head"><span class="card-title">📅 Meetings Today</span><span class="sub">'+todaysMeetings.length+' meeting'+(todaysMeetings.length===1?'':'s')+'</span></div><div class="card-pad" style="padding-top:2px">' +
     todaysMeetings.map(meetingRow).join('') +
@@ -2397,6 +2399,7 @@ function myQuickActions(){
   return '<div class="quick-actions-grid">' +
     '<div class="quick-action-btn" onclick="openCreateTask()">'+icon('plus',18)+'Create Task</div>' +
     '<div class="quick-action-btn" onclick="openCreateMeeting()">'+icon('message',18)+'Add Meeting</div>' +
+    '<div class="quick-action-btn" onclick="openPhotoImport()">'+icon('camera',18)+'Add from Photo</div>' +
     '<div class="quick-action-btn" onclick="setView(\'calendar\')">'+icon('calendar',18)+'Open Calendar</div>' +
     '<div class="quick-action-btn" onclick="setView(\'mytasks\')">'+icon('check',18)+'My Tasks</div>' +
     '<div class="quick-action-btn" onclick="setView(\'reports\')">'+icon('chart',18)+'My Reports</div>' +
@@ -2430,7 +2433,7 @@ function viewDashboardMember(u){
 
   return '' +
   '<div class="page-head"><div><div class="page-title">'+greeting()+', '+u.name.split(' ')[0]+'! 👋</div><div class="page-sub">"Plan today. Progress tomorrow." · '+fmtDate(todayISO())+' · '+u.department+'</div></div>' +
-    '<div class="page-actions"><button class="btn btn-primary" onclick="openCreateTask()">'+icon('plus',14)+' Create Task</button><button class="btn" onclick="openCreateMeeting()">'+icon('message',14)+' Add Meeting</button><button class="btn" onclick="setView(\'mytasks\')">'+icon('check',14)+' Go to My Tasks</button></div>' +
+    '<div class="page-actions"><button class="btn btn-primary" onclick="openCreateTask()">'+icon('plus',14)+' Create Task</button><button class="btn" onclick="openCreateMeeting()">'+icon('message',14)+' Add Meeting</button><button class="btn" onclick="openPhotoImport()">'+icon('camera',14)+' Add from Photo</button><button class="btn" onclick="setView(\'mytasks\')">'+icon('check',14)+' Go to My Tasks</button></div>' +
   '</div>' +
 
   (alerts.dueToday.length+alerts.overdue.length > 0 ?
@@ -3026,6 +3029,7 @@ function renderModal(){
   if (m.type === 'sendNotification') return renderSendNotificationModal();
   if (m.type === 'resourceRequest') return renderResourceRequestModal(m.taskId);
   if (m.type === 'meetingForm') return renderMeetingFormModal(m.meetingId);
+  if (m.type === 'photoImport') return renderPhotoImportModal();
   return '';
 }
 
@@ -3471,6 +3475,191 @@ function viewMeetings(u){
     ['All'].concat(MEETING_TYPES).map(t => '<span class="chip-filter '+(f===t?'active':'')+'" onclick="setMeetingTypeFilter(\''+t+'\')">'+t+'</span>').join('') +
   '</div>' +
   (filtered.length ? filtered.map(meetingRow).join('') : '<div class="card card-pad"><div class="empty-state">No meetings'+(f==='All'?'':' of this type')+' yet.</div></div>');
+}
+
+/* =====================================================================
+   ADD TASKS FROM PHOTO — snap a handwritten list, read it with an
+   in-browser OCR library (Tesseract.js, loaded on demand — no server,
+   no API key), then let the member fix misreads and review the
+   auto-assigned due dates before anything is actually saved.
+   ===================================================================== */
+function openPhotoImport(){
+  state.modal = { type:'photoImport', stage:'pick', imageDataUrl:null, imageFile:null, ocrProgress:0, lines:[],
+    sharedDept: currentUser().department, sharedProject: DB.projects[0]||'Other', sharedPriority:'Medium' };
+  render();
+}
+function handlePhotoImportFile(event){
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e){
+    state.modal.imageDataUrl = e.target.result;
+    state.modal.imageFile = file;
+    state.modal.stage = 'preview';
+    render();
+  };
+  reader.readAsDataURL(file);
+}
+let tesseractLoadPromise = null;
+function loadTesseractLib(){
+  if (window.Tesseract) return Promise.resolve();
+  if (tesseractLoadPromise) return tesseractLoadPromise;
+  tesseractLoadPromise = new Promise(function(resolve, reject){
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
+    s.onload = function(){ resolve(); };
+    s.onerror = function(){ tesseractLoadPromise = null; reject(new Error('Could not load the handwriting scanner.')); };
+    document.head.appendChild(s);
+  });
+  return tesseractLoadPromise;
+}
+function parseHandwrittenLines(rawText){
+  return (rawText||'').split(/\r?\n/)
+    .map(function(line){
+      return line
+        .replace(/^[\s]*[-*•–—]+[\s]*/, '')
+        .replace(/^[\s]*\(?\d{1,2}[.)][\s]*/, '')
+        .replace(/^[\s]*\[[ xX]?\][\s]*/, '')
+        .trim();
+    })
+    .filter(function(line){ return line.length >= 2 && /[A-Za-z0-9]/.test(line); })
+    .slice(0, 30);
+}
+function startPhotoScan(){
+  state.modal.stage = 'scanning';
+  state.modal.ocrProgress = 0;
+  render();
+  loadTesseractLib().then(function(){
+    return Tesseract.recognize(state.modal.imageFile, 'eng', {
+      logger: function(info){
+        if (info.status === 'recognizing text' && typeof info.progress === 'number'){
+          const pct = Math.round(info.progress*100);
+          const bar = document.getElementById('pi-progress-fill');
+          const label = document.getElementById('pi-progress-label');
+          if (bar) bar.style.width = pct + '%';
+          if (label) label.textContent = pct + '%';
+        }
+      }
+    });
+  }).then(function(result){
+    if (!state.modal || state.modal.type !== 'photoImport') return; // modal closed mid-scan
+    const lines = parseHandwrittenLines(result.data.text);
+    if (!lines.length){
+      state.modal.stage = 'empty';
+    } else {
+      state.modal.lines = lines.map(function(text, i){
+        return { text: text, included: true, dueDate: addDaysISO(todayISO(), i+1) };
+      });
+      state.modal.stage = 'review';
+    }
+    render();
+  }).catch(function(e){
+    console.error('Handwriting scan failed', e);
+    if (!state.modal || state.modal.type !== 'photoImport') return;
+    state.modal.stage = 'error';
+    render();
+  });
+}
+function togglePhotoImportLine(i){
+  state.modal.lines[i].included = !state.modal.lines[i].included;
+  updatePhotoImportAddButtonLabel();
+}
+function updatePhotoImportLineText(i, val){ state.modal.lines[i].text = val; }
+function updatePhotoImportLineDate(i, val){ state.modal.lines[i].dueDate = val; }
+function updatePhotoImportAddButtonLabel(){
+  const btn = document.getElementById('pi-add-btn');
+  if (!btn) return;
+  const n = state.modal.lines.filter(function(l){ return l.included; }).length;
+  btn.textContent = 'Add ' + n + ' Task' + (n===1?'':'s');
+  btn.disabled = n === 0;
+}
+async function confirmPhotoImport(){
+  const m = state.modal;
+  const dept = document.getElementById('pi-dept').value;
+  const project = document.getElementById('pi-project').value;
+  const priority = document.getElementById('pi-priority').value;
+  const toAdd = m.lines.filter(function(l){ return l.included && l.text.trim(); });
+  if (!toAdd.length) return;
+  const btn = document.getElementById('pi-add-btn');
+  if (btn){ btn.disabled = true; btn.textContent = 'Adding…'; }
+  let failed = 0;
+  for (const line of toAdd){
+    try {
+      await DB.addTask({
+        name: line.text.trim(), description: '', assignedTo: currentUser().id, assignedBy: currentUser().id,
+        department: dept, project: project, createdDate: todayISO(), startDate: todayISO(), dueDate: line.dueDate,
+        priority: priority, level: 2, status: 'Not Started', estimatedHours: null, actualHours: null,
+        progress: 0, completionDate: null, completionNotes: ''
+      });
+    } catch(e){ failed++; }
+  }
+  const ok = toAdd.length - failed;
+  showToast(failed ? (ok+' of '+toAdd.length+' tasks added — '+failed+' failed, check your connection') : (ok+' task'+(ok===1?'':'s')+' added from your photo'));
+  closeModal();
+}
+function renderPhotoImportModal(){
+  const m = state.modal;
+  const fileInput = '<input type="file" id="pi-file" accept="image/*" capture="environment" style="display:none" onchange="handlePhotoImportFile(event)" />';
+  let body;
+  if (m.stage === 'pick'){
+    body = '<div style="text-align:center;padding:30px 20px">' +
+        '<div style="width:56px;height:56px;border-radius:50%;background:var(--accent-soft);color:var(--accent-strong);display:flex;align-items:center;justify-content:center;margin:0 auto 14px">'+icon('camera',24)+'</div>' +
+        '<div style="font-weight:800;font-size:14px;margin-bottom:6px">Snap a photo of your handwritten list</div>' +
+        '<div class="sub" style="max-width:380px;margin:0 auto 16px">Works best with clear block printing, one task per line, in good light. We\'ll read it, guess a due date for each line, and let you fix anything before adding them — nothing is saved until you confirm.</div>' +
+        fileInput +
+        '<button class="btn btn-primary" onclick="document.getElementById(\'pi-file\').click()">'+icon('camera',14)+' Choose or Take Photo</button>' +
+      '</div>';
+  } else if (m.stage === 'preview'){
+    body = '<div style="text-align:center">' +
+        '<img src="'+m.imageDataUrl+'" style="max-width:100%;max-height:320px;border-radius:10px;border:1px solid var(--border);margin-bottom:14px" />' +
+        '<div class="flex gap-8" style="justify-content:center;flex-wrap:wrap">' +
+          '<button class="btn btn-ghost" onclick="document.getElementById(\'pi-file\').click()">Retake / Choose Different Photo</button>' +
+          '<button class="btn btn-primary" onclick="startPhotoScan()">'+icon('camera',14)+' Scan Handwriting</button>' +
+        '</div>' + fileInput +
+      '</div>';
+  } else if (m.stage === 'scanning'){
+    body = '<div style="text-align:center;padding:20px">' +
+        '<img src="'+m.imageDataUrl+'" style="max-width:100%;max-height:200px;border-radius:10px;border:1px solid var(--border);margin-bottom:16px;opacity:.6" />' +
+        '<div style="font-weight:700;font-size:13px;margin-bottom:10px">Reading your handwriting… <span id="pi-progress-label">0%</span></div>' +
+        '<div class="progress-track lg"><div id="pi-progress-fill" class="progress-fill" style="width:0%"></div></div>' +
+        '<div class="sub" style="margin-top:10px">This can take up to a minute on a larger photo.</div>' +
+      '</div>';
+  } else if (m.stage === 'empty'){
+    body = '<div style="text-align:center;padding:20px">' +
+        '<div class="empty-state">Couldn\'t find any readable text in that photo. Try a clearer, well-lit shot with one task per line.</div>' +
+        '<button class="btn btn-primary" style="margin-top:10px" onclick="document.getElementById(\'pi-file\').click()">Try Another Photo</button>' + fileInput +
+      '</div>';
+  } else if (m.stage === 'error'){
+    body = '<div style="text-align:center;padding:20px">' +
+        '<div class="empty-state" style="color:var(--bad)">Something went wrong reading that photo — the scanner loads from the internet the first time, so check your connection and try again.</div>' +
+        '<button class="btn btn-primary" style="margin-top:10px" onclick="startPhotoScan()">Try Again</button>' +
+      '</div>';
+  } else { // review
+    body = '<div class="sub" style="margin-bottom:12px">Found '+m.lines.length+' line'+(m.lines.length===1?'':'s')+'. Uncheck anything that isn\'t really a task, fix any misreads, and review the due dates — we spread them out automatically, starting tomorrow.</div>' +
+      '<div class="field-row">' +
+        '<div class="field-group"><label>Department</label><select id="pi-dept">'+DB.departments.map(function(d){ return '<option '+(m.sharedDept===d?'selected':'')+'>'+escHtml(d)+'</option>'; }).join('')+'</select></div>' +
+        '<div class="field-group"><label>Project / Client</label><select id="pi-project">'+DB.projects.map(function(p){ return '<option '+(m.sharedProject===p?'selected':'')+'>'+escAttr(p)+'</option>'; }).join('')+'</select></div>' +
+      '</div>' +
+      '<div class="field-row single"><div class="field-group"><label>Priority (applies to all)</label><select id="pi-priority">'+PRIORITIES.map(function(p){ return '<option '+(m.sharedPriority===p?'selected':'')+'>'+p+'</option>'; }).join('')+'</select></div></div>' +
+      '<div style="max-height:320px;overflow-y:auto;border:1px solid var(--border);border-radius:9px;padding:4px 10px;margin-top:4px">' +
+        m.lines.map(function(line, i){
+          return '<div class="flex gap-8" style="align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">' +
+            '<input type="checkbox" '+(line.included?'checked':'')+' onchange="togglePhotoImportLine('+i+')" />' +
+            '<input type="text" class="field" style="flex:1" value="'+escAttr(line.text)+'" onchange="updatePhotoImportLineText('+i+', this.value)" />' +
+            '<input type="date" class="field" style="width:150px" value="'+line.dueDate+'" onchange="updatePhotoImportLineDate('+i+', this.value)" />' +
+          '</div>';
+        }).join('') +
+      '</div>';
+  }
+  const includedCount = m.lines.filter(function(l){ return l.included; }).length;
+  return '<div class="modal-overlay" onclick="if(event.target===this) closeModal()"><div class="modal wide">' +
+    '<div class="modal-head"><h3>Add Tasks from Photo</h3><span class="close-x" onclick="closeModal()">'+icon('x',15)+'</span></div>' +
+    '<div class="modal-body">' + body + '</div>' +
+    '<div class="modal-foot">' +
+      '<button class="btn btn-ghost" onclick="closeModal()">Cancel</button>' +
+      (m.stage==='review' ? '<button id="pi-add-btn" class="btn btn-primary" '+(includedCount===0?'disabled':'')+' onclick="confirmPhotoImport()">Add '+includedCount+' Task'+(includedCount===1?'':'s')+'</button>' : '') +
+    '</div>' +
+  '</div></div>';
 }
 
 /* ---- Task Detail (progress, status, comments, completion) ---- */
