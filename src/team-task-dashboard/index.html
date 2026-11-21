@@ -734,15 +734,19 @@ const DB = (function(){
     }).eq('id', e.dbId).then(({error}) => { if (error) showToast('Could not save that change — check your connection'); });
     return e;
   }
-  // Records which Supabase Auth user (a real auth.uid()) corresponds to
-  // this employee, on every successful email sign-in — lets Row Level
-  // Security policies map a request's identity back to its employee row.
-  // Best-effort and silent: this is enrichment, not something the client
-  // depends on, and the column may not exist yet on older schemas.
-  function linkAuthUser(id, authUserId){
-    const e = employees.find(x => x.id === id);
-    if (!e || !authUserId) return;
-    sb.from('employees').update({ auth_user_id: authUserId }).eq('id', e.dbId).then(function(){});
+  // Records which Supabase Auth user (a real auth.uid()) corresponds to the
+  // signed-in employee, right after a successful email sign-in — lets Row
+  // Level Security policies map a request's identity back to its employee
+  // row. Calls a SECURITY DEFINER Postgres function (see docs/db/) rather
+  // than updating the employees row directly: that function derives the
+  // caller's email from their own verified auth session and only ever
+  // claims the one matching, not-yet-claimed row, so it stays safe to call
+  // even once RLS would otherwise block a client from writing to
+  // employees directly. Best-effort and silent — enrichment, not something
+  // the client depends on, and the function may not exist yet on older
+  // schemas.
+  function linkAuthUser(){
+    sb.rpc('link_my_employee_record').then(function(){});
   }
   async function addTask(t){
     const row = {
@@ -4213,7 +4217,7 @@ async function initApp(){
         state.currentUserId = emp.id;
         state.locked = !emp.superAdmin;
         signedInViaEmail = true;
-        DB.linkAuthUser(emp.id, authUser.id);
+        DB.linkAuthUser();
       }
     }
   } catch(e){}

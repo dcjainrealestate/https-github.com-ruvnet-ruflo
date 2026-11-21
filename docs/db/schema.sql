@@ -166,23 +166,16 @@ create table if not exists notification_reads (
 -- ============================================================
 -- SECURITY NOTE — read before enabling Row Level Security
 -- ============================================================
--- As of this writing, every table above is almost certainly reachable with
--- NO row-level restriction via the public anon/publishable key that's
--- embedded directly in index.html's page source. The app's "login" (an
--- access-code screen) is enforced entirely in client-side JavaScript —
--- DB.fetchAll() downloads every employee record (including each one's
--- literal `token` and `super_admin` flag) and every task BEFORE that
--- screen is ever passed. Anyone who loads the public site and opens
--- devtools can read `DB.employees` / `DB.tasks` directly, with no login
--- required, and the "access code" itself is a deterministic hash of the
--- employee's name (see `deterministicToken()` in index.html) rather than a
--- real secret.
+-- UPDATE: this gap is being closed in two follow-up files, run in order:
+--   1. 002-add-auth-user-id.sql — safe to run immediately, no behavior
+--      change (adds the column + function that link a Supabase Auth
+--      session to its employee row; nothing is restricted yet).
+--   2. 003-enable-rls.sql — the actual breaking cutover (enables RLS with
+--      policies covering every table). Read its own header first — it
+--      has a required pre-check and a rollback if something goes wrong.
 --
--- Enabling `alter table ... enable row level security;` on these tables
--- WITHOUT also adding real identity-aware policies will break the app
--- (every anon-key read/write will start failing). Properly closing this
--- gap means moving login onto real Supabase Auth (the existing magic-link
--- `signInWithOtp` flow is the natural path) and writing RLS policies keyed
--- to `auth.uid()`, which is a larger, separate piece of work — tracked
--- outside this file rather than attempted here as a drive-by column
--- change.
+-- As of index.html's login screen being retired in favor of email-only
+-- sign-in, the client no longer offers a way to generate the old
+-- deterministic access-code session, but the underlying gap (every table
+-- reachable via the public anon key with no server-side restriction) isn't
+-- closed until 003-enable-rls.sql actually runs.

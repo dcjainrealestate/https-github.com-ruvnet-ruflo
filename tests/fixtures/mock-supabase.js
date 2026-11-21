@@ -28,7 +28,7 @@ function buildInitScript(seed = {}) {
 
   return `
     window.__fetchCalls = [];
-    window.__employeeUpdateCalls = [];
+    window.__rpcCalls = [];
     window.__nextDbTaskId = 1;
     const __origFetch = window.fetch.bind(window);
     window.fetch = function(url, opts){
@@ -66,13 +66,12 @@ function buildInitScript(seed = {}) {
           auth: { getSession: async function(){ return { data: { session: ${JSON.stringify(session)} } }; } },
           channel: function(){ const ch = { on: function(){ return ch; }, subscribe: function(){ return ch; } }; return ch; },
           removeChannel: function(){},
+          rpc: function(fn, args){
+            window.__rpcCalls.push({ fn, args });
+            return Promise.resolve({ data: null, error: null });
+          },
           from: function(table){
-            if (table === 'employees') {
-              const c = __chain(${JSON.stringify(employees)});
-              const origUpdate = c.update.bind(c);
-              c.update = function(row){ window.__employeeUpdateCalls.push(row); return origUpdate(row); };
-              return c;
-            }
+            if (table === 'employees') return __chain(${JSON.stringify(employees)});
             if (table === 'departments') return __chain(${JSON.stringify(departments)});
             if (table === 'projects') return __chain(${JSON.stringify(projects)});
             if (table === 'tasks') return __chain([]);

@@ -23,8 +23,8 @@ test('an established Supabase Auth session signs the matching employee in and li
   expect(await page.evaluate(() => currentUser().id)).toBe('E2');
   expect(await page.evaluate(() => state.locked)).toBe(true); // not a super admin
 
-  const updateCalls = await page.evaluate(() => window.__employeeUpdateCalls);
-  expect(updateCalls.some((c) => c.auth_user_id === 'auth-uid-123')).toBe(true);
+  const rpcCalls = await page.evaluate(() => window.__rpcCalls);
+  expect(rpcCalls.some((c) => c.fn === 'link_my_employee_record')).toBe(true);
 });
 
 test('an auth session for an unknown email falls back to the login gate', async ({ page }) => {
