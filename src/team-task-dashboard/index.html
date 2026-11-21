@@ -734,6 +734,16 @@ const DB = (function(){
     }).eq('id', e.dbId).then(({error}) => { if (error) showToast('Could not save that change — check your connection'); });
     return e;
   }
+  // Records which Supabase Auth user (a real auth.uid()) corresponds to
+  // this employee, on every successful email sign-in — lets Row Level
+  // Security policies map a request's identity back to its employee row.
+  // Best-effort and silent: this is enrichment, not something the client
+  // depends on, and the column may not exist yet on older schemas.
+  function linkAuthUser(id, authUserId){
+    const e = employees.find(x => x.id === id);
+    if (!e || !authUserId) return;
+    sb.from('employees').update({ auth_user_id: authUserId }).eq('id', e.dbId).then(function(){});
+  }
   async function addTask(t){
     const row = {
       name:t.name, description:t.description||'', assigned_to:rawId(t.assignedTo), assigned_by:rawId(t.assignedBy),
@@ -909,7 +919,7 @@ const DB = (function(){
     return { recurrence: recurrenceSupported, linkedTask: linkedTaskSupported, urgentWork: urgentFieldsSupported, workHours: workHoursSupported, meetings: meetingsSupported, meetingStatus: meetingStatusSupported };
   }
   return { employees, departments, projects, tasks, meetings, notifications, notificationReads,
-    addEmployee, updateEmployee, addTask, updateTask, deleteTask, addComment,
+    addEmployee, updateEmployee, linkAuthUser, addTask, updateTask, deleteTask, addComment,
     addMeeting, updateMeeting, deleteMeeting,
     addProject, renameProject, addDepartment, renameDepartment,
     projectMascot, setProjectMascot,
@@ -1566,8 +1576,8 @@ function render(){
       }
     }
   } else {
-    const codeInput = document.getElementById('access-code-input');
-    if (codeInput) codeInput.focus();
+    const emailInput = document.getElementById('email-input');
+    if (emailInput) emailInput.focus();
   }
   window.scrollTo(0, scrollY);
 }
@@ -1694,24 +1704,8 @@ function resetSessionState(){
   state.sidebarOpen = false;
   state.taskFilters = { quick:'All', status:'All', dept:'All', project:'All', employee:'All', priority:'All', level:'All' };
 }
-function submitAccessCode(){
-  const raw = document.getElementById('access-code-input').value;
-  state.accessAttempt = raw;
-  const emp = DB.employees.find(e => e.active && normalizeCode(e.token) === normalizeCode(raw));
-  if (!emp){ state.accessError = true; render(); return; }
-  state.currentUserId = emp.id;
-  state.locked = !emp.superAdmin;
-  state.accessError = false;
-  resetSessionState();
-  try { localStorage.setItem('tf_access_code', emp.token); } catch(e){}
-  requestNotificationPermission();
-  render();
-}
 function signOut(){
   state.currentUserId = null;
-  state.accessAttempt = '';
-  state.accessError = false;
-  state.authMode = 'code';
   state.emailAttempt = '';
   state.emailLinkSent = false;
   state.emailError = null;
@@ -1720,7 +1714,6 @@ function signOut(){
   sb.auth.signOut().catch(function(){});
   render();
 }
-function switchAuthMode(mode){ state.authMode = mode; state.emailError = null; render(); }
 async function sendMagicLink(){
   const email = (document.getElementById('email-input').value || '').trim().toLowerCase();
   state.emailAttempt = email;
@@ -1739,27 +1732,14 @@ async function sendMagicLink(){
 }
 function useAnotherEmail(){ state.emailLinkSent = false; state.emailError = null; render(); }
 function renderAccessGate(){
-  const mode = state.authMode || 'code';
   return '<div style="min-height:100vh;width:100%;display:flex;align-items:center;justify-content:center;padding:24px;background:var(--bg);position:relative">' +
     '<button class="icon-btn" style="position:absolute;top:20px;right:20px" onclick="toggleTheme()" title="'+(state.theme==='dark'?'Switch to light mode':'Switch to dark mode')+'">'+icon(state.theme==='dark'?'sun':'moon',15)+'</button>' +
     '<div class="card card-pad" style="max-width:380px;width:100%;text-align:center">' +
       '<img src="assets/logo.png" alt="DC Jain Real Estate" style="max-width:220px;width:100%;height:auto;margin:0 auto 16px;display:block" />' +
       '<div style="font-weight:800;font-size:15px;letter-spacing:.01em;margin-bottom:14px">DC JAIN REAL ESTATE TASK MANAGEMENT SYSTEM</div>' +
-      '<div class="flex gap-8" style="justify-content:center;margin-bottom:16px">' +
-        '<span class="chip-filter '+(mode==='code'?'active':'')+'" onclick="switchAuthMode(\'code\')">Access Code</span>' +
-        '<span class="chip-filter '+(mode==='email'?'active':'')+'" onclick="switchAuthMode(\'email\')">Email</span>' +
-      '</div>' +
-      (mode === 'code' ? renderCodeGateBody() : renderEmailGateBody()) +
+      renderEmailGateBody() +
     '</div>' +
   '</div>';
-}
-function renderCodeGateBody(){
-  return '' +
-    '<div style="font-weight:800;font-size:16px;margin-bottom:6px">Enter your access code</div>' +
-    '<div class="sub" style="margin-bottom:16px">Your manager gave you a short code — type it below to open your own dashboard. Managers use their own code the same way.</div>' +
-    '<input id="access-code-input" class="field" style="width:100%;text-align:center;font-size:15px;letter-spacing:.04em;padding:10px" placeholder="e.g. 7m9g-v51l" value="'+escAttr(state.accessAttempt||'')+'" onkeydown="if(event.key===\'Enter\') submitAccessCode()" />' +
-    (state.accessError ? '<div style="color:var(--bad);font-size:12px;font-weight:700;margin-top:8px">Code not recognized — check with your manager and try again.</div>' : '') +
-    '<button class="btn btn-primary" style="width:100%;margin-top:12px;justify-content:center" onclick="submitAccessCode()">Continue</button>';
 }
 function renderEmailGateBody(){
   if (!state.emailLinkSent){
@@ -2954,8 +2934,10 @@ function teamRow(e){
 }
 function viewTeam(){
   const emps = visibleEmployees();
+  const missingEmail = emps.filter(e => e.active && !e.email);
   return '<div class="page-head"><div><div class="page-title">Team</div><div class="page-sub">'+emps.filter(e=>e.active).length+' active members</div></div>' +
     '<div class="page-actions"><button class="btn btn-primary" onclick="openCreateEmployee()">'+icon('plus',14)+' Add Employee</button></div></div>' +
+  (missingEmail.length ? '<div class="card card-pad" style="margin-bottom:16px;background:var(--warn-soft);color:var(--warn);font-size:12.5px"><b>Heads up:</b> sign-in is email-only now, and '+missingEmail.length+' active member'+(missingEmail.length===1?'':'s')+" can't sign in until an email is added: "+missingEmail.map(e=>escHtml(e.name)).join(', ')+'.</div>' : '') +
   '<div class="card"><div class="table-wrap"><table><thead><tr><th>Name</th><th>Role</th><th>Department</th><th>Joined</th><th>Status</th><th>Active Tasks</th><th>Completed</th><th>Efficiency</th><th>Action</th></tr></thead><tbody>' +
     emps.map(e => teamRow(e)).join('') +
   '</tbody></table></div></div>';
@@ -4119,7 +4101,7 @@ function renderEmployeeFormModal(empId){
     '<div class="modal-body">' +
       '<div class="field-row single"><div class="field-group"><label>Full Name</label><input id="ef-name" class="field" value="'+escAttr(e?e.name:'')+'" placeholder="e.g. Neha Kulkarni" /></div></div>' +
       '<div class="field-row single"><div class="field-group"><label>Title</label><input id="ef-title" class="field" value="'+escAttr(e?e.title:'')+'" placeholder="e.g. Creative Designer" /></div></div>' +
-      '<div class="field-row single"><div class="field-group"><label>Email</label><input id="ef-email" type="email" class="field" value="'+escAttr(e?e.email:'')+'" placeholder="e.g. name@gmail.com" /><div class="sub" style="margin-top:4px">Optional — lets them sign in with an emailed one-time code instead of the access code.</div></div></div>' +
+      '<div class="field-row single"><div class="field-group"><label>Email</label><input id="ef-email" type="email" class="field" value="'+escAttr(e?e.email:'')+'" placeholder="e.g. name@gmail.com" /><div class="sub" style="margin-top:4px">Required — sign-in is email-only, so they can\'t get in without this.</div></div></div>' +
       '<div class="field-row">' +
         '<div class="field-group"><label>Department</label><select id="ef-dept">'+DB.departments.map(dpt=>'<option '+((e?e.department:DB.departments[0])===dpt?'selected':'')+'>'+dpt+'</option>').join('')+'</select></div>' +
         '<div class="field-group"><label>Role</label><select id="ef-role"><option value="member" '+(!e||e.role==='member'?'selected':'')+'>Team Member</option><option value="admin" '+(e&&e.role==='admin'?'selected':'')+'>Admin / Manager</option></select></div>' +
@@ -4132,9 +4114,10 @@ function renderEmployeeFormModal(empId){
 }
 async function saveEmployeeForm(id){
   const name = document.getElementById('ef-name').value.trim();
-  if (!name){ showToast('Name is required'); return; }
+  if (!name){ flagFieldError('ef-name', 'Name is required'); return; }
   const title = document.getElementById('ef-title').value.trim();
   const email = document.getElementById('ef-email').value.trim().toLowerCase();
+  if (!email){ flagFieldError('ef-email', "Email is required — sign-in is email-only"); return; }
   const department = document.getElementById('ef-dept').value;
   const role = document.getElementById('ef-role').value;
   const superAdmin = document.getElementById('ef-superadmin').checked;
@@ -4199,14 +4182,6 @@ document.addEventListener('click', function(e){
   }
 });
 
-function getSavedUser(){
-  try {
-    const saved = localStorage.getItem('tf_access_code');
-    if (!saved) return null;
-    return DB.employees.find(e => e.token === saved && e.active) || null;
-  } catch(e){ return null; }
-}
-
 async function initApp(){
   try {
     await DB.fetchAll();
@@ -4223,33 +4198,34 @@ async function initApp(){
   }
   DB.setupRealtime(render);
 
-  // A clicked magic-link redirect lands back here with the session already
-  // established by the supabase-js client (it parses the URL automatically).
-  // Check for that before falling back to the saved access-code session.
+  // Sign-in is email-only (magic link via Supabase Auth) — the access-code
+  // login this app used to have is retired. A clicked magic-link redirect
+  // lands back here with the session already established by the
+  // supabase-js client (it parses the URL automatically).
   let signedInViaEmail = false;
   try {
     const { data } = await sb.auth.getSession();
-    const authEmail = data && data.session && data.session.user && data.session.user.email;
+    const authUser = data && data.session && data.session.user;
+    const authEmail = authUser && authUser.email;
     if (authEmail){
       const emp = DB.employees.find(e => e.active && e.email && e.email.toLowerCase() === authEmail.toLowerCase());
       if (emp){
         state.currentUserId = emp.id;
         state.locked = !emp.superAdmin;
-        try { localStorage.setItem('tf_access_code', emp.token); } catch(e){}
         signedInViaEmail = true;
+        DB.linkAuthUser(emp.id, authUser.id);
       }
     }
   } catch(e){}
 
+  // Legacy access-code sessions from before email-only sign-in can't be
+  // honored anymore — clear the old key so a stale "logged in" UI state
+  // never lingers past a real login check.
+  try { localStorage.removeItem('tf_access_code'); } catch(e){}
+
   if (!signedInViaEmail){
-    const savedUser = getSavedUser();
-    if (savedUser){
-      state.currentUserId = savedUser.id;
-      state.locked = !savedUser.superAdmin;
-    } else {
-      state.currentUserId = null;
-      state.locked = true;
-    }
+    state.currentUserId = null;
+    state.locked = true;
   }
   if (state.currentUserId) requestNotificationPermission();
   render();

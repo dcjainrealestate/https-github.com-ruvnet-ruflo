@@ -21,9 +21,14 @@ function buildInitScript(seed = {}) {
   const employees = seed.employees || DEFAULT_EMPLOYEES;
   const departments = seed.departments || DEFAULT_DEPARTMENTS;
   const projects = seed.projects || DEFAULT_PROJECTS;
+  // Pass e.g. { user: { email: 'member@example.test', id: 'auth-uid-123' } }
+  // to simulate an already-established Supabase Auth session (as if a
+  // magic-link redirect had just landed), or omit for a logged-out boot.
+  const session = seed.session || null;
 
   return `
     window.__fetchCalls = [];
+    window.__employeeUpdateCalls = [];
     window.__nextDbTaskId = 1;
     const __origFetch = window.fetch.bind(window);
     window.fetch = function(url, opts){
@@ -58,11 +63,16 @@ function buildInitScript(seed = {}) {
     window.supabase = {
       createClient: function(){
         return {
-          auth: { getSession: async function(){ return { data: { session: null } }; } },
+          auth: { getSession: async function(){ return { data: { session: ${JSON.stringify(session)} } }; } },
           channel: function(){ const ch = { on: function(){ return ch; }, subscribe: function(){ return ch; } }; return ch; },
           removeChannel: function(){},
           from: function(table){
-            if (table === 'employees') return __chain(${JSON.stringify(employees)});
+            if (table === 'employees') {
+              const c = __chain(${JSON.stringify(employees)});
+              const origUpdate = c.update.bind(c);
+              c.update = function(row){ window.__employeeUpdateCalls.push(row); return origUpdate(row); };
+              return c;
+            }
             if (table === 'departments') return __chain(${JSON.stringify(departments)});
             if (table === 'projects') return __chain(${JSON.stringify(projects)});
             if (table === 'tasks') return __chain([]);
