@@ -2212,7 +2212,7 @@ function viewDashboardAdmin(){
       '<button class="btn btn-primary" onclick="openCreateTask()">'+icon('plus',14)+' Create Task</button>' +
       '<button class="btn" onclick="openCreateMeeting()">'+icon('message',14)+' Add Meeting</button>' +
       '<button class="btn" onclick="openPhotoImport()">'+icon('camera',14)+' Add from Photo</button>' +
-      '<button class="btn" onclick="openSendUpdate()">'+icon('mail',14)+' Send Update to All</button>' +
+      '<button class="btn" onclick="openSendUpdate()">'+icon('mail',14)+' Send Update</button>' +
     '</div>' +
   '</div>' +
 
@@ -3072,23 +3072,41 @@ async function submitSendNotification(){
   }
 }
 
-/* ---- Send Update to All (admin-composed email broadcast, real email —
-   not the in-app notification above) ---- */
-function openSendUpdate(){ state.modal = { type:'sendUpdateEmail' }; render(); }
+/* ---- Send Update (admin-composed email broadcast, real email — not the
+   in-app notification above) — to everyone, or to one specific member ---- */
+function openSendUpdate(){ state.modal = { type:'sendUpdateEmail', recipient:'' }; render(); }
+function sendUpdateButtonLabel(){
+  const m = state.modal;
+  if (m.recipient){
+    const emp = DB.employees.find(e => e.id === m.recipient);
+    return 'Send to ' + (emp ? emp.name.split(' ')[0] : '1');
+  }
+  const n = DB.employees.filter(e => e.active && e.email).length;
+  return 'Send to ' + n;
+}
+function updateSendUpdateRecipient(val){ state.modal.recipient = val; render(); }
 function renderSendUpdateModal(){
-  const recipients = DB.employees.filter(e => e.active && e.email);
+  const recipientPool = DB.employees.filter(e => e.active && e.email);
   const noEmailCount = DB.employees.filter(e => e.active && !e.email).length;
+  const selected = state.modal.recipient;
+  const sendDisabled = selected ? false : recipientPool.length === 0;
+  const scopeNote = selected
+    ? 'This sends a real email (not an in-app notification) to just that member.'
+    : 'This sends a real email (not an in-app notification) to every active member with an email on file — '+recipientPool.length+' recipient'+(recipientPool.length===1?'':'s')+'.'+
+      (noEmailCount ? ' '+noEmailCount+' active member'+(noEmailCount===1?'':'s')+' with no email saved won\'t receive it.' : '');
   return '<div class="modal-overlay" onclick="if(event.target===this) closeModal()"><div class="modal">' +
-    '<div class="modal-head"><h3>Send Update to All Members</h3><span class="close-x" onclick="closeModal()">'+icon('x',15)+'</span></div>' +
+    '<div class="modal-head"><h3>Send Update</h3><span class="close-x" onclick="closeModal()">'+icon('x',15)+'</span></div>' +
     '<div class="modal-body">' +
-      '<div class="sub" style="margin-bottom:12px">This sends a real email (not an in-app notification) to every active member with an email on file — '+recipients.length+' recipient'+(recipients.length===1?'':'s')+'.'+
-        (noEmailCount ? ' '+noEmailCount+' active member'+(noEmailCount===1?'':'s')+' with no email saved won\'t receive it.' : '')+
-      '</div>' +
+      '<div class="field-row single"><div class="field-group"><label>Send To</label><select id="su-recipient" class="field" onchange="updateSendUpdateRecipient(this.value)">' +
+        '<option value="">Everyone ('+recipientPool.length+')</option>' +
+        recipientPool.map(e => '<option value="'+e.id+'" '+(selected===e.id?'selected':'')+'>'+escHtml(e.name)+'</option>').join('') +
+      '</select></div></div>' +
+      '<div class="sub" style="margin-bottom:12px">'+scopeNote+'</div>' +
       '<div class="field-row single"><div class="field-group"><label>Subject</label><input id="su-subject" class="field" placeholder="e.g. Office closed this Friday" /></div></div>' +
       '<div class="field-row single"><div class="field-group"><label>Message</label><textarea id="su-body" class="field" rows="6" placeholder="Write your update..."></textarea></div></div>' +
     '</div>' +
     '<div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button>' +
-      '<button id="su-send-btn" class="btn btn-primary" '+(recipients.length?'':'disabled')+' onclick="submitSendUpdate()">'+icon('mail',13)+' Send to '+recipients.length+'</button></div>' +
+      '<button id="su-send-btn" class="btn btn-primary" '+(sendDisabled?'disabled':'')+' onclick="submitSendUpdate()">'+icon('mail',13)+' '+sendUpdateButtonLabel()+'</button></div>' +
   '</div></div>';
 }
 async function submitSendUpdate(){
@@ -3098,22 +3116,26 @@ async function submitSendUpdate(){
   const message = bodyEl.value.trim();
   if (!subject){ flagFieldError('su-subject', 'Subject is required'); return; }
   if (!message){ flagFieldError('su-body', 'Write a message first'); return; }
-  const recipientCount = DB.employees.filter(e => e.active && e.email).length;
+  const recipientId = state.modal.recipient;
+  const recipientEmp = recipientId ? DB.employees.find(e => e.id === recipientId) : null;
+  const label = sendUpdateButtonLabel();
   const btn = document.getElementById('su-send-btn');
   if (btn){ btn.disabled = true; btn.textContent = 'Sending…'; }
   try {
+    const payload = { subject, message, senderName: currentUser().name };
+    if (recipientEmp) payload.recipientEmail = recipientEmp.email;
     const res = await fetch(BROADCAST_EMAIL_ENDPOINT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + SUPABASE_ANON_KEY },
-      body: JSON.stringify({ subject, message, senderName: currentUser().name })
+      body: JSON.stringify(payload)
     });
     if (!res.ok) throw new Error('relay responded with ' + res.status);
-    showToast('Update queued — emails are going out to ' + recipientCount + ' member' + (recipientCount===1?'':'s'));
+    showToast(recipientEmp ? ('Update queued for ' + recipientEmp.name) : 'Update queued — emails are going out to everyone');
     closeModal();
   } catch(e){
-    console.error('Send Update to All failed', e);
+    console.error('Send Update failed', e);
     showToast('Could not send the update — check your connection and try again');
-    if (btn){ btn.disabled = false; btn.textContent = 'Send to ' + recipientCount; }
+    if (btn){ btn.disabled = false; btn.textContent = label; }
   }
 }
 

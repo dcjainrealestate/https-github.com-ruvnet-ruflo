@@ -34,7 +34,7 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS_HEADERS });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
-  let payload: { subject?: string; message?: string; senderName?: string };
+  let payload: { subject?: string; message?: string; senderName?: string; recipientEmail?: string };
   try {
     payload = await req.json();
   } catch {
@@ -44,6 +44,7 @@ Deno.serve(async (req) => {
   const subject = (payload.subject || "").trim();
   const message = (payload.message || "").trim();
   const senderName = (payload.senderName || "Admin").trim();
+  const recipientEmail = (payload.recipientEmail || "").trim();
   if (!subject || !message) return json({ error: "subject and message are required" }, 400);
 
   const githubToken = Deno.env.get("GITHUB_PAT");
@@ -60,7 +61,7 @@ Deno.serve(async (req) => {
       },
       body: JSON.stringify({
         event_type: "send-broadcast",
-        client_payload: { subject, message, senderName },
+        client_payload: { subject, message, senderName, recipientEmail },
       }),
     },
   );
