@@ -25,6 +25,11 @@ function buildInitScript(seed = {}) {
   // to simulate an already-established Supabase Auth session (as if a
   // magic-link redirect had just landed), or omit for a logged-out boot.
   const session = seed.session || null;
+  // Canned response for the handwriting-OCR endpoint (an array of line
+  // strings, as the real self-hosted service returns), or a function of
+  // (url, opts) => response body, for tests that need to vary it. Defaults
+  // to a realistic 3-line list.
+  const ocrLines = seed.ocrLines || ['Buy milk', 'Call John Smith', 'Finish quarterly report'];
 
   return `
     window.__fetchCalls = [];
@@ -35,6 +40,10 @@ function buildInitScript(seed = {}) {
       if (typeof url === 'string' && url.indexOf('/functions/v1/trigger-broadcast') !== -1) {
         window.__fetchCalls.push({ url, opts, body: opts && opts.body ? JSON.parse(opts.body) : null });
         return Promise.resolve({ ok: true, status: 200 });
+      }
+      if (typeof url === 'string' && url.indexOf('/scan') !== -1) {
+        window.__fetchCalls.push({ url, opts });
+        return Promise.resolve({ ok: true, status: 200, json: function(){ return Promise.resolve({ lines: ${JSON.stringify(ocrLines)} }); } });
       }
       return __origFetch(url, opts);
     };
