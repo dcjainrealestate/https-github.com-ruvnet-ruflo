@@ -423,11 +423,12 @@
 const SUPABASE_URL = 'https://iubvxxihxqesabwflxsq.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_sZr74GUFEBqYaAJi8ar_fg_FtiYhsHz';
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-// Relay endpoint for the admin "Send Update to All" email broadcast — a thin
-// Supabase Edge Function that hands the message to a GitHub Actions workflow,
-// which does the actual sending (Edge Functions can't make raw SMTP
-// connections, only HTTPS, so Gmail sending happens there instead).
-const BROADCAST_EMAIL_ENDPOINT = SUPABASE_URL + '/functions/v1/trigger-broadcast';
+// Relay endpoint for every outbound email this app sends (admin "Send
+// Update" broadcasts and the instant "you've been assigned a task" email) —
+// a thin Supabase Edge Function that hands the request to a GitHub Actions
+// workflow, which does the actual sending (Edge Functions can't make raw
+// SMTP connections, only HTTPS, so Gmail sending happens there instead).
+const EMAIL_RELAY_ENDPOINT = SUPABASE_URL + '/functions/v1/trigger-broadcast';
 
 /* =====================================================================
    1. DATA LAYER
@@ -752,6 +753,7 @@ const DB = (function(){
     if (error) throw error;
     const mapped = mapTaskRow(data);
     tasks.push(mapped);
+    if (mapped.assignedTo && mapped.assignedTo !== mapped.assignedBy) notifyTaskAssigned(mapped);
     return mapped;
   }
   function updateTask(id, patch){
@@ -3123,7 +3125,7 @@ async function submitSendUpdate(){
   try {
     const payload = { subject, message, senderName: currentUser().name };
     if (recipientEmp) payload.recipientEmail = recipientEmp.email;
-    const res = await fetch(BROADCAST_EMAIL_ENDPOINT, {
+    const res = await fetch(EMAIL_RELAY_ENDPOINT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + SUPABASE_ANON_KEY },
       body: JSON.stringify(payload)
@@ -3136,6 +3138,30 @@ async function submitSendUpdate(){
     showToast('Could not send the update — check your connection and try again');
     if (btn){ btn.disabled = false; btn.textContent = label; }
   }
+}
+
+/* ---- Instant "you've been assigned a task" email — fires from DB.addTask()
+   whenever a task is created for someone other than the creator, so it
+   covers the Create Task form, resource requests, and anywhere else a task
+   gets handed to a teammate. Best-effort: never blocks or breaks task
+   creation if the email fails to send. ---- */
+function notifyTaskAssigned(task){
+  try {
+    const assignee = DB.employees.find(e => e.id === task.assignedTo);
+    const assigner = DB.employees.find(e => e.id === task.assignedBy);
+    if (!assignee || !assignee.active || !assignee.email) return;
+    fetch(EMAIL_RELAY_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + SUPABASE_ANON_KEY },
+      body: JSON.stringify({
+        kind: 'task-assigned',
+        recipientEmail: assignee.email,
+        taskName: task.name,
+        dueDate: task.dueDate,
+        assignedByName: assigner ? assigner.name : 'A teammate'
+      })
+    }).catch(function(e){ console.error('Task-assigned email relay failed', e); });
+  } catch(e){ console.error('notifyTaskAssigned failed', e); }
 }
 
 /* ---- Resource Request (ask a teammate for something from inside a task) ---- */
