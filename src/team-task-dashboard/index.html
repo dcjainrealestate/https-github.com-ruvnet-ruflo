@@ -3573,7 +3573,7 @@ function viewMeetings(u){
    ===================================================================== */
 // Set this to your deployed Hugging Face Space's /scan URL — see
 // src/handwriting-ocr-space/README.md for how to deploy it.
-const HANDWRITING_OCR_ENDPOINT = 'https://YOUR-USERNAME-handwriting-ocr.hf.space/scan';
+const HANDWRITING_OCR_ENDPOINT = 'https://rocky9631-handwriting-ocr.hf.space/scan';
 function openPhotoImport(){
   state.modal = { type:'photoImport', stage:'pick', imageDataUrl:null, imageFile:null, ocrProgress:0, lines:[],
     sharedDept: currentUser().department, sharedProject: DB.projects[0]||'Other', sharedPriority:'Medium' };
