@@ -3079,10 +3079,9 @@ function sendUpdateButtonLabel(){
   const m = state.modal;
   if (m.recipient){
     const emp = DB.employees.find(e => e.id === m.recipient);
-    return 'Send to ' + (emp ? emp.name.split(' ')[0] : '1');
+    return 'Send to ' + (emp ? emp.name.split(' ')[0] : 'Member');
   }
-  const n = DB.employees.filter(e => e.active && e.email).length;
-  return 'Send to ' + n;
+  return 'Send';
 }
 function updateSendUpdateRecipient(val){ state.modal.recipient = val; render(); }
 function renderSendUpdateModal(){
@@ -3098,7 +3097,7 @@ function renderSendUpdateModal(){
     '<div class="modal-head"><h3>Send Update</h3><span class="close-x" onclick="closeModal()">'+icon('x',15)+'</span></div>' +
     '<div class="modal-body">' +
       '<div class="field-row single"><div class="field-group"><label>Send To</label><select id="su-recipient" class="field" onchange="updateSendUpdateRecipient(this.value)">' +
-        '<option value="">Everyone ('+recipientPool.length+')</option>' +
+        '<option value="">Everyone</option>' +
         recipientPool.map(e => '<option value="'+e.id+'" '+(selected===e.id?'selected':'')+'>'+escHtml(e.name)+'</option>').join('') +
       '</select></div></div>' +
       '<div class="sub" style="margin-bottom:12px">'+scopeNote+'</div>' +
